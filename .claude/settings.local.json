@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /media/aguisoft/608AB3838AB353EE/Users/Carlos/Documents/Projects/vlaSystem/packages/shared -type f -name *.ts)"
+    ]
+  }
+}

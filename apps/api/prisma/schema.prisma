@@ -1,0 +1,178 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["core", "virtual_office"]
+}
+
+// ==================== CORE SCHEMA ====================
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String?
+  googleId     String?  @unique
+  firstName    String
+  lastName     String
+  role         UserRole @default(STAFF)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  presenceStatus  PresenceStatus?
+  checkInRecords  CheckInRecord[]
+  userAvatar      UserAvatar?
+  bitrixMapping   BitrixUserMapping?
+
+  @@schema("core")
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+  STUDENT
+  PROFESSOR
+
+  @@schema("core")
+}
+
+model Plugin {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  version     String
+  description String
+  route       String?
+  icon        String?
+  adminOnly   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  config      Json?
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@schema("core")
+}
+
+// ==================== VIRTUAL_OFFICE SCHEMA ====================
+
+model OfficeLayout {
+  id              String   @id @default(uuid())
+  name            String
+  width           Int      @default(40)
+  height          Int      @default(30)
+  backgroundImage String?
+  zones           Json
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@schema("virtual_office")
+}
+
+model UserAvatar {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  skinColor   String    @default("#F5CBA7")
+  hairStyle   HairStyle @default(short)
+  hairColor   String    @default("#2C2C2C")
+  shirtColor  String    @default("#3498DB")
+  accessory   Accessory @default(none)
+  emoji       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("virtual_office")
+}
+
+enum HairStyle {
+  short
+  long
+  curly
+  bald
+  ponytail
+  mohawk
+  afro
+  buzz
+
+  @@schema("virtual_office")
+}
+
+enum Accessory {
+  glasses
+  headphones
+  hat
+  earbuds
+  none
+
+  @@schema("virtual_office")
+}
+
+model CheckInRecord {
+  id           String      @id @default(uuid())
+  userId       String
+  checkInAt    DateTime    @default(now())
+  checkOutAt   DateTime?
+  totalMinutes Int?
+  source       CheckSource @default(WEB)
+  createdAt    DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("virtual_office")
+}
+
+enum CheckSource {
+  WEB
+  BITRIX
+  MOBILE
+
+  @@schema("virtual_office")
+}
+
+model PresenceStatus {
+  id            String         @id @default(uuid())
+  userId        String         @unique
+  status        OfficeStatus   @default(OFFLINE)
+  statusMessage String?
+  currentZoneId String?
+  defaultZoneId String?
+  positionX     Int?
+  positionY     Int?
+  isCheckedIn   Boolean        @default(false)
+  lastActivityAt DateTime      @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("virtual_office")
+}
+
+enum OfficeStatus {
+  AVAILABLE
+  BUSY
+  IN_MEETING
+  FOCUS
+  LUNCH
+  BRB
+  OFFLINE
+
+  @@schema("virtual_office")
+}
+
+model BitrixUserMapping {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  bitrixUserId Int      @unique
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("virtual_office")
+}

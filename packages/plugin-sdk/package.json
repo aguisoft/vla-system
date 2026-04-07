@@ -1,0 +1,19 @@
+{
+  "name": "@vla/plugin-sdk",
+  "version": "1.0.0",
+  "description": "SDK oficial para desarrollar plugins del sistema VLA",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0",
+    "@nestjs/core": "^10.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/core": "^10.3.0",
+    "typescript": "^5.3.3"
+  }
+}
