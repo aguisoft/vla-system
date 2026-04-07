@@ -63,18 +63,14 @@ export default defineConfig({
     },
   ],
 
-  webServer: [
-    {
-      command: 'npm run dev:api',
-      url: 'http://localhost:3001/health',
-      reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
-    },
-    {
-      command: 'npm run dev:web',
-      url: 'http://localhost:3000',
-      reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
-    },
-  ],
+  // webServer is intentionally omitted for local development.
+  // Run both servers manually before executing tests:
+  //   Terminal 1: npm run dev:api
+  //   Terminal 2: npm run dev:web
+  //
+  // For CI, uncomment and configure:
+  // webServer: [
+  //   { command: 'npm run dev:api', url: 'http://localhost:3001/api/docs', timeout: 60_000 },
+  //   { command: 'npm run dev:web', url: 'http://localhost:3000/login',    timeout: 60_000 },
+  // ],
 });
