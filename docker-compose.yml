@@ -1,20 +1,24 @@
 version: '3.8'
 
+# Development infrastructure (PostgreSQL + Redis only).
+# Copy apps/api/.env.example to apps/api/.env and fill in values.
+# Default credentials below are for local development only.
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: vla_postgres
     environment:
-      POSTGRES_DB: vla_db
-      POSTGRES_USER: vla_user
-      POSTGRES_PASSWORD: vla_password
+      POSTGRES_DB: ${POSTGRES_DB:-vla_db}
+      POSTGRES_USER: ${POSTGRES_USER:-vla_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vla_password}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vla_user -d vla_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vla_user} -d ${POSTGRES_DB:-vla_db}"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -20,6 +20,7 @@ import { AdminModule } from './modules/admin/admin.module';
         DATABASE_URL:         Joi.string().required(),
         REDIS_HOST:           Joi.string().required(),
         REDIS_PORT:           Joi.number().default(6379),
+        REDIS_PASSWORD:       Joi.string().optional().allow(''),
         JWT_SECRET:           Joi.string().min(32).required(),
         JWT_EXPIRES_IN:       Joi.string().default('7d'),
         API_PORT:             Joi.number().default(3001),

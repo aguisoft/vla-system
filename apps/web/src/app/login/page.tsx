@@ -28,7 +28,8 @@ export default function LoginPage() {
   }
 
   function handleGoogleLogin() {
-    window.location.href = 'http://localhost:3001/api/v1/auth/google';
+    // Uses the Next.js rewrite proxy — works in both dev and production
+    window.location.href = '/api/v1/auth/google';
   }
 
   return (
