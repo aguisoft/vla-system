@@ -18,7 +18,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      router.push('/dashboard/office');
+      const { user } = useAuthStore.getState();
+      router.push(user?.role === 'ADMIN' ? '/dashboard/admin' : '/dashboard/welcome');
     } catch {
       setError('Email o contraseña incorrectos');
     } finally {

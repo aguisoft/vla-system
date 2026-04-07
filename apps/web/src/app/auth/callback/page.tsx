@@ -15,8 +15,9 @@ export default function AuthCallbackPage() {
     api
       .get('/auth/me')
       .then(({ data }) => {
-        setUser(data.user ?? data);
-        router.replace('/dashboard');
+        const user = data.user ?? data;
+        setUser(user);
+        router.replace(user.role === 'ADMIN' ? '/dashboard/admin' : '/dashboard/welcome');
       })
       .catch(() => {
         router.replace('/login?error=oauth_failed');

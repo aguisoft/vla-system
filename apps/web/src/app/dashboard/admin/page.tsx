@@ -61,7 +61,7 @@ export default function AdminPage() {
 
   // Guard: admin only
   useEffect(() => {
-    if (user && user.role !== UserRole.ADMIN) router.replace('/dashboard/office');
+    if (user && user.role !== UserRole.ADMIN) router.replace('/dashboard/welcome');
   }, [user, router]);
 
   useEffect(() => {
