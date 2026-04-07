@@ -1,32 +1,27 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth.store';
+import api from '@/lib/api';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { setUser } = useAuthStore();
 
   useEffect(() => {
-    const token = searchParams.get('token');
-    const userParam = searchParams.get('user');
-
-    if (!token || !userParam) {
-      router.replace('/login?error=oauth_failed');
-      return;
-    }
-
-    try {
-      const user = JSON.parse(decodeURIComponent(userParam));
-      localStorage.setItem('vla_token', token);
-      setUser(user, token);
-      router.replace('/dashboard/office');
-    } catch {
-      router.replace('/login?error=oauth_failed');
-    }
-  }, [searchParams, router, setUser]);
+    // Cookie was already set by the server during the OAuth redirect.
+    // Just fetch the current user to hydrate the store.
+    api
+      .get('/auth/me')
+      .then(({ data }) => {
+        setUser(data.user ?? data);
+        router.replace('/dashboard');
+      })
+      .catch(() => {
+        router.replace('/login?error=oauth_failed');
+      });
+  }, [router, setUser]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-green-50">

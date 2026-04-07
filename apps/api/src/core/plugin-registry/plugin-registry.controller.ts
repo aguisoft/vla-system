@@ -114,7 +114,7 @@ export class PluginRegistryController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
   async uploadPlugin(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new NotFoundException('No file provided');

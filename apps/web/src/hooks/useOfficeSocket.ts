@@ -3,7 +3,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useOfficeStore } from '@/stores/office.store';
-import { useAuthStore } from '@/stores/auth.store';
 import {
   PresenceUpdatePayload,
   UserJoinedPayload,
@@ -18,7 +17,6 @@ import {
 export function useOfficeSocket() {
   const socketRef = useRef<Socket | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const { token } = useAuthStore();
   const { updatePresence, removePresence, addActivityEvent, setConnected, setAllPresences } = useOfficeStore();
 
   const connect = useCallback(() => {
@@ -26,7 +24,7 @@ export function useOfficeSocket() {
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
     const socket = io(`${apiUrl}/office`, {
-      auth: { token },
+      withCredentials: true, // sends vla_token httpOnly cookie
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -106,7 +104,7 @@ export function useOfficeSocket() {
     });
 
     socketRef.current = socket;
-  }, [token, updatePresence, removePresence, addActivityEvent, setConnected, setAllPresences]);
+  }, [updatePresence, removePresence, addActivityEvent, setConnected, setAllPresences]);
 
   const disconnect = useCallback(() => {
     socketRef.current?.disconnect();

@@ -21,7 +21,7 @@ export class PluginLoaderModule {
       imports: [
         JwtModule.registerAsync({
           useFactory: () => ({
-            secret: process.env.JWT_SECRET ?? 'fallback-secret',
+            secret: process.env.JWT_SECRET!,
             signOptions: { expiresIn: '7d' },
           }),
         }),
