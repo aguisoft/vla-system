@@ -21,8 +21,13 @@ async function bootstrap() {
   // ── Cookie parser (for httpOnly JWT cookies) ────────────────────────────────
   app.use(cookieParser());
 
+  // ── Health check — registered as Express middleware before NestJS routing ───
+  app.use('/health', (_req: any, res: any) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
   // ── Global prefix & CORS ────────────────────────────────────────────────────
-  app.setGlobalPrefix('api/v1', { exclude: ['/health'] });
+  app.setGlobalPrefix('api/v1');
 
   app.enableCors({
     origin: process.env.FRONTEND_URL,
@@ -40,12 +45,6 @@ async function bootstrap() {
 
   // ── WebSocket ───────────────────────────────────────────────────────────────
   app.useWebSocketAdapter(new IoAdapter(app));
-
-  // ── Health check (outside /api/v1 prefix) ───────────────────────────────────
-  const httpAdapter = app.getHttpAdapter();
-  httpAdapter.get('/health', (_req: any, res: any) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  });
 
   // ── Swagger (development only) ───────────────────────────────────────────────
   if (!isProduction) {
