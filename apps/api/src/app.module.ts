@@ -1,8 +1,10 @@
 import * as Joi from 'joi';
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { PrismaModule } from './core/prisma/prisma.module';
 import { AuthModule } from './core/auth/auth.module';
 import { UsersModule } from './core/users/users.module';
@@ -11,13 +13,29 @@ import { PluginRegistryModule } from './core/plugin-registry/plugin-registry.mod
 import { PluginLoaderModule } from './core/plugin-loader/plugin-loader.module';
 import { RedisModule } from './core/redis/redis.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { RolesModule } from './core/roles/roles.module';
+import { PermissionsModule } from './core/permissions/permissions.module';
 
 @Module({
+  providers: [
+    // Global rate-limit guard — individual routes can override with @Throttle()
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
   imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        transport: process.env.NODE_ENV !== 'production'
+          ? { target: 'pino-pretty', options: { colorize: true, singleLine: true } }
+          : undefined,
+        level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
+        redact: ['req.headers.authorization', 'req.headers.cookie'],
+      },
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: Joi.object({
         DATABASE_URL:         Joi.string().required(),
+        DIRECT_URL:           Joi.string().optional(),
         REDIS_HOST:           Joi.string().required(),
         REDIS_PORT:           Joi.number().default(6379),
         REDIS_PASSWORD:       Joi.string().optional().allow(''),
@@ -43,6 +61,9 @@ import { AdminModule } from './modules/admin/admin.module';
     PluginRegistryModule,
     // Dynamic external plugin loader (scans storage/plugins/ at boot)
     PluginLoaderModule.register(),
+    // Custom roles & permissions
+    RolesModule,
+    PermissionsModule,
     // Built-in modules
     AdminModule,
   ],

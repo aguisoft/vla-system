@@ -1,5 +1,14 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { IsString, MinLength } from 'class-validator';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
+
+class ResetPasswordDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(6)
+  password: string;
+}
 import { UsersService, UpdateUserDto } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -39,5 +48,19 @@ export class UsersController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.update(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Reset user password (Admin only)' })
+  @Roles(UserRole.ADMIN)
+  @Patch(':id/password')
+  resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto) {
+    return this.usersService.resetPassword(id, dto.password);
+  }
+
+  @ApiOperation({ summary: 'Delete user (Admin only)' })
+  @Roles(UserRole.ADMIN)
+  @Delete(':id')
+  delete(@Param('id') id: string, @Request() req: any) {
+    return this.usersService.delete(id, req.user.id);
   }
 }

@@ -1,5 +1,8 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { Router } from 'express';
+import * as express from 'express';
+import * as path from 'path';
+import * as fs from 'fs';
 import { HttpAdapterHost } from '@nestjs/core';
 import type { DiscoveredPlugin } from './plugin-discovery';
 import { DISCOVERED_PLUGINS_TOKEN } from './plugin-loader.constants';
@@ -29,13 +32,17 @@ export class PluginLoaderService implements OnModuleInit {
     const httpAdapter = this.adapterHost.httpAdapter;
     const expressApp = httpAdapter.getInstance();
 
-    for (const { manifest, definition } of this.discovered) {
+    for (const { manifest, definition, pluginDir } of this.discovered) {
       try {
         const pluginRouter = Router();
         const ctx = this.contextFactory.build(manifest, pluginRouter);
 
         // Call the plugin's register() — it wires its routes and hooks here
         await definition.register(ctx);
+
+        // Check if plugin ships a frontend bundle (ui/ folder inside its dir)
+        const uiDir = path.join(pluginDir, 'ui');
+        const hasFrontend = fs.existsSync(uiDir);
 
         // Upsert the plugin record in the DB and run install/activate lifecycle
         await this.registry.register({
@@ -45,6 +52,7 @@ export class PluginLoaderService implements OnModuleInit {
           route: manifest.route,
           icon: manifest.icon,
           adminOnly: manifest.adminOnly,
+          hasFrontend,
           onInstall: definition.onInstall?.bind(definition),
           onActivate: undefined, // external plugins activate via register()
           onDeactivate: definition.onDeactivate?.bind(definition),
@@ -56,6 +64,12 @@ export class PluginLoaderService implements OnModuleInit {
         // Mount plugin router at /api/v1/p/:pluginName/
         const mountPath = `/api/v1/p/${manifest.name}`;
         expressApp.use(mountPath, pluginRouter);
+
+        // Serve bundled frontend at /api/v1/p/:pluginName/ui/ if it exists
+        if (hasFrontend) {
+          expressApp.use(`${mountPath}/ui`, express.static(uiDir));
+          this.logger.log(`Plugin frontend served at ${mountPath}/ui: ${manifest.name}`);
+        }
 
         this.logger.log(`Plugin loaded and mounted at ${mountPath}: ${manifest.name} v${manifest.version}`);
       } catch (err) {

@@ -49,6 +49,7 @@ export interface PluginRegistration {
   icon?: string;
   adminOnly: boolean;
   isActive: boolean;
+  hasFrontend?: boolean;
   config?: Record<string, unknown> | null;
   installedAt: Date;
   updatedAt: Date;
@@ -66,4 +67,5 @@ export interface PluginSummary {
   icon?: string;
   adminOnly: boolean;
   isActive: boolean;
+  hasFrontend?: boolean;
 }

@@ -6,7 +6,7 @@ import {
   ActivityFeedPayload,
 } from '@vla/shared';
 
-interface OfficeLayout {
+export interface OfficeLayout {
   id: string;
   name: string;
   width: number;

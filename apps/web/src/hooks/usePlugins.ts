@@ -11,6 +11,7 @@ export interface PluginRegistration {
   icon: string;
   adminOnly: boolean;
   isActive: boolean;
+  hasFrontend?: boolean;
 }
 
 export function usePlugins() {

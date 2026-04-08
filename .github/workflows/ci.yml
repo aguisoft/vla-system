@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ─── Unit tests ──────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared packages
+        run: |
+          npm run build -w @vla/shared
+          npm run build -w @vla/plugin-sdk
+
+      - name: Run unit tests
+        run: npm test --workspace=apps/api -- --ci --coverage
+
+  # ─── E2E tests ───────────────────────────────────────────────────────────────
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vla_user
+          POSTGRES_PASSWORD: vla_password
+          POSTGRES_DB: vla_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build all packages
+        run: npm run build --workspaces --if-present
+
+      - name: Run DB migrations & seed
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql://vla_user:vla_password@localhost:5432/vla_db
+        run: |
+          npx prisma migrate deploy --schema=prisma/schema.prisma
+          npm run db:seed
+
+      - name: Start API server
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql://vla_user:vla_password@localhost:5432/vla_db
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          JWT_SECRET: ci-secret-at-least-32-chars-long-for-testing
+          JWT_EXPIRES_IN: 7d
+          API_PORT: 3001
+          NODE_ENV: development
+          FRONTEND_URL: http://localhost:3000
+          GOOGLE_CALLBACK_URL: http://localhost:3001/api/v1/auth/google/callback
+        run: node dist/main.js &
+
+      - name: Start Web server
+        working-directory: apps/web
+        env:
+          API_URL: http://localhost:3001
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+          NODE_ENV: production
+        run: node .next/standalone/server.js &
+
+      - name: Wait for servers
+        run: |
+          npx wait-on http://localhost:3001/health http://localhost:3000 --timeout 30000
+
+      - name: Run Playwright E2E tests
+        env:
+          BASE_URL: http://localhost:3000
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  # ─── Docker build check ──────────────────────────────────────────────────────
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    # Only verify builds; push handled by deploy workflow
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f apps/api/Dockerfile -t vla-api:ci .
+
+      - name: Build Web image
+        run: docker build -f apps/web/Dockerfile -t vla-web:ci .

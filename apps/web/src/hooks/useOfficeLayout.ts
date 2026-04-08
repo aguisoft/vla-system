@@ -9,7 +9,7 @@ export function useOfficeLayout() {
 
   useEffect(() => {
     if (layout) return;
-    api.get('/office/layout')
+    api.get('/p/office/layout')
       .then((res) => setLayout(res.data))
       .catch(console.error);
   }, [layout, setLayout]);

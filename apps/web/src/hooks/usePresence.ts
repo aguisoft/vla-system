@@ -21,17 +21,17 @@ export function usePresence() {
   }, [isCheckedIn, checkInStartTime]);
 
   const checkIn = useCallback(async () => {
-    await api.post('/office/check-in', { source: 'WEB' });
+    await api.post('/p/office/checkin');
     setCheckedIn(true, new Date());
   }, [setCheckedIn]);
 
   const checkOut = useCallback(async () => {
-    await api.post('/office/check-out');
+    await api.post('/p/office/checkout');
     setCheckedIn(false);
   }, [setCheckedIn]);
 
   const changeStatus = useCallback(async (status: PresenceStatusEnum, message?: string) => {
-    await api.patch('/office/status', { status, statusMessage: message });
+    await api.patch('/p/office/presence/status', { status, statusMessage: message });
     setMyStatus(status);
   }, [setMyStatus]);
 

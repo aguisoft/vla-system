@@ -1,11 +1,11 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { HookService } from '../hooks/hook.service';
 import { CORE_HOOKS } from '../hooks/hook.constants';
-import { JwtPayload } from '@vla/shared';
+import { JwtPayload, BUILTIN_ROLE_PERMISSIONS } from '@vla/shared';
 
 @Injectable()
 export class AuthService {
@@ -66,6 +66,54 @@ export class AuthService {
     return user;
   }
 
+  async impersonate(adminId: string, targetUserId: string) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target) throw new NotFoundException('User not found');
+    if (!target.isActive) throw new ForbiddenException('Cannot impersonate an inactive user');
+    if (target.role === 'ADMIN') throw new ForbiddenException('Cannot impersonate another admin');
+
+    const permissions = await this.resolvePermissions(target.id, target.role);
+
+    const payload: JwtPayload = {
+      sub: target.id,
+      email: target.email,
+      role: target.role as any,
+      permissions,
+      impersonatedBy: adminId,
+    };
+    const token = this.jwtService.sign(payload, { expiresIn: '2h' });
+    return { token, user: { id: target.id, email: target.email, firstName: target.firstName, lastName: target.lastName, role: target.role } };
+  }
+
+  async stopImpersonation(adminId: string) {
+    const admin = await this.prisma.user.findUnique({ where: { id: adminId } });
+    if (!admin || admin.role !== 'ADMIN') throw new ForbiddenException('Invalid impersonation session');
+
+    const permissions = await this.resolvePermissions(admin.id, admin.role);
+    const payload: JwtPayload = { sub: admin.id, email: admin.email, role: admin.role as any, permissions };
+    const token = this.jwtService.sign(payload);
+    return { token, user: { id: admin.id, email: admin.email, firstName: admin.firstName, lastName: admin.lastName, role: admin.role } };
+  }
+
+  private async resolvePermissions(userId: string, role: string): Promise<string[]> {
+    const userRecord = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { customRole: true },
+    });
+
+    let base: string[];
+    if (userRecord?.customRole) {
+      base = (userRecord.customRole.permissions as string[]) ?? [];
+    } else {
+      base = (BUILTIN_ROLE_PERMISSIONS[role] ?? []) as string[];
+    }
+
+    // Allow plugins to inject additional permissions at login time.
+    // The filter receives { permissions, userId, role } so plugins have full context.
+    const result = await this.hooks.applyFilter(CORE_HOOKS.PERMISSIONS_EXTEND, { permissions: base, userId, role });
+    return result.permissions;
+  }
+
   async login(user: {
     id: string;
     email: string;
@@ -73,10 +121,13 @@ export class AuthService {
     firstName: string;
     lastName: string;
   }) {
+    const permissions = await this.resolvePermissions(user.id, user.role);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role as any,
+      permissions,
     };
 
     const token = this.jwtService.sign(payload);

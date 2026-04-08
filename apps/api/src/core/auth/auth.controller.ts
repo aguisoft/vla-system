@@ -1,10 +1,14 @@
 import {
   Controller, Post, UseGuards, Request, Body,
-  Get, Res, UnauthorizedException,
+  Get, Res, Param, UnauthorizedException, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
+import { UserRole } from '@vla/shared';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
@@ -28,6 +32,7 @@ export class AuthController {
   ) {}
 
   @ApiOperation({ summary: 'Login with email & password' })
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Request() req: any, @Res({ passthrough: true }) res: Response) {
@@ -37,6 +42,7 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Logout — clears auth cookie' })
+  @SkipThrottle()
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
     res.clearCookie('vla_token', { path: '/' });
@@ -44,11 +50,43 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Get current authenticated user' })
+  @SkipThrottle()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me')
   getMe(@Request() req: any) {
-    return req.user;
+    return {
+      ...req.user,
+      permissions: req.user.permissions ?? [],
+      isImpersonated: !!req.user.impersonatedBy,
+    };
+  }
+
+  @ApiOperation({ summary: 'Impersonate a user (Admin only)' })
+  @SkipThrottle()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('impersonate/:id')
+  async impersonate(
+    @Param('id') targetId: string,
+    @Request() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (req.user.impersonatedBy) throw new ForbiddenException('Cannot impersonate while already impersonating');
+    const { token, user } = await this.authService.impersonate(req.user.id, targetId);
+    (res as any).cookie('vla_token', token, { ...COOKIE_OPTIONS, maxAge: 2 * 60 * 60 * 1000 });
+    return { user, impersonatedBy: req.user.id };
+  }
+
+  @ApiOperation({ summary: 'Stop impersonation, return to admin session' })
+  @SkipThrottle()
+  @UseGuards(JwtAuthGuard)
+  @Post('impersonate/stop')
+  async stopImpersonation(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    if (!req.user.impersonatedBy) throw new ForbiddenException('Not in an impersonation session');
+    const { token, user } = await this.authService.stopImpersonation(req.user.impersonatedBy);
+    (res as any).cookie('vla_token', token, COOKIE_OPTIONS);
+    return { user };
   }
 
   @ApiOperation({ summary: 'Initiate Google OAuth login' })

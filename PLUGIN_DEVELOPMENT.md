@@ -440,6 +440,77 @@ Import from `../../core/hooks/hook.constants` (backend) or `@vla/shared` (shared
 | `CORE_HOOKS.AUTH_GOOGLE_LOGIN` | `core.auth.google_login` | Action | `{ user, isNew }` |
 | `CORE_HOOKS.PLUGIN_ACTIVATED` | `core.plugin.activated` | Action | `{ pluginName }` |
 | `CORE_HOOKS.PLUGIN_DEACTIVATED` | `core.plugin.deactivated` | Action | `{ pluginName }` |
+| `CORE_HOOKS.PERMISSIONS_REGISTER` | `core.permissions.register` | Filter | `Record<string, { label, group, plugin? }>` |
+| `CORE_HOOKS.PERMISSIONS_EXTEND` | `core.permissions.extend` | Filter | `{ permissions: string[]; userId: string; role: string }` |
+| `CORE_HOOKS.ROLES_PRESET` | `core.roles.preset` | Filter | `PresetRole[]` |
+
+---
+
+## 6a. Extending permissions and roles from a plugin
+
+Plugins can contribute their own permissions and preset roles to the system.
+These appear in **Admin → Roles** so admins can assign them to custom roles.
+
+### Register new permissions
+
+```typescript
+// my-plugin.module.ts — inside onModuleInit()
+this.hooks.registerFilter(
+  CORE_HOOKS.PERMISSIONS_REGISTER,
+  (map) => ({
+    ...map,
+    'myplugin.read':   { label: 'Ver Mi Plugin',      group: 'Mi Plugin', plugin: 'my-plugin' },
+    'myplugin.manage': { label: 'Gestionar Mi Plugin', group: 'Mi Plugin', plugin: 'my-plugin' },
+  }),
+);
+```
+
+The permissions appear grouped under **"Mi Plugin"** in the role modal, with a blue
+`plugin: my-plugin` badge. Admins can then build custom roles that include them.
+
+### Register preset roles
+
+```typescript
+// my-plugin.module.ts — inside onModuleInit()
+this.hooks.registerFilter(
+  CORE_HOOKS.ROLES_PRESET,
+  (roles) => [
+    ...roles,
+    {
+      name: 'Operador Mi Plugin',
+      description: 'Puede ver y gestionar Mi Plugin',
+      permissions: ['myplugin.read', 'myplugin.manage', 'office.read'],
+      color: '#3B82F6',
+      plugin: 'my-plugin',
+    },
+  ],
+);
+```
+
+Preset roles appear in **Admin → Roles** as suggestions with a **"Crear"** button.
+They are not created automatically — the admin must click "Crear" to persist them.
+
+### Extend permissions at login time
+
+Use this hook to inject permissions dynamically based on external data (e.g. a
+CRM role mapping):
+
+```typescript
+this.hooks.registerFilter(
+  CORE_HOOKS.PERMISSIONS_EXTEND,
+  async (ctx) => {
+    // ctx = { permissions: string[], userId: string, role: string }
+    const hasCrmRole = await this.crmService.hasRole(ctx.userId, 'operator');
+    if (hasCrmRole) {
+      return { ...ctx, permissions: [...ctx.permissions, 'myplugin.manage'] };
+    }
+    return ctx;
+  },
+);
+```
+
+> **Important:** This hook runs on every login. Keep it fast — avoid slow DB queries
+> or external HTTP calls without caching.
 
 ---
 
@@ -561,6 +632,8 @@ Full Swagger docs available at `http://localhost:3001/api/docs` when running loc
 - [ ] Module added to `AppModule` imports
 - [ ] Frontend route matches the `route` field in the registration
 - [ ] Tested activate/deactivate lifecycle via `POST /plugins/:name/activate`
+- [ ] (optional) New permissions registered via `CORE_HOOKS.PERMISSIONS_REGISTER`
+- [ ] (optional) Preset roles registered via `CORE_HOOKS.ROLES_PRESET`
 
 ## Quick checklist — external plugin (.vla.zip)
 

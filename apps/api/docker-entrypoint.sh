@@ -1,8 +1,11 @@
 #!/bin/sh
 set -e
 
-echo "[entrypoint] Applying database schema..."
-npx prisma db push --schema=apps/api/prisma/schema.prisma --skip-generate --accept-data-loss=false
+echo "[entrypoint] Running database migrations..."
+npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+
+echo "[entrypoint] Running production seed (idempotent — superadmin only)..."
+NODE_ENV=production node apps/api/dist/prisma/seed.js
 
 echo "[entrypoint] Starting VLA API..."
 exec node apps/api/dist/main.js

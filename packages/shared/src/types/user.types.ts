@@ -28,6 +28,9 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: UserRole;
+  permissions: string[];
+  /** Set when an admin is impersonating this user — contains the admin's user id */
+  impersonatedBy?: string;
   iat?: number;
   exp?: number;
 }

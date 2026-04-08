@@ -11,6 +11,9 @@ export class PluginRegistryService implements OnModuleInit {
   /** In-memory map of live plugin definitions (populated at boot via register()) */
   private readonly plugins = new Map<string, VLAPlugin>();
 
+  /** In-memory map of which plugins have a bundled frontend */
+  private readonly frontendFlags = new Map<string, boolean>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly hooks: HookService,
@@ -28,8 +31,9 @@ export class PluginRegistryService implements OnModuleInit {
    * Called by each plugin module during `onModuleInit()`.
    * Upserts the plugin record in the DB and invokes lifecycle callbacks.
    */
-  async register(plugin: VLAPlugin): Promise<void> {
+  async register(plugin: VLAPlugin & { hasFrontend?: boolean }): Promise<void> {
     this.plugins.set(plugin.name, plugin);
+    this.frontendFlags.set(plugin.name, plugin.hasFrontend ?? false);
 
     const existing = await this.prisma.plugin.findUnique({
       where: { name: plugin.name },
@@ -166,6 +170,7 @@ export class PluginRegistryService implements OnModuleInit {
       icon: record.icon ?? undefined,
       adminOnly: record.adminOnly,
       isActive: record.isActive,
+      hasFrontend: this.frontendFlags.get(record.name) ?? false,
       config: (record.config as Record<string, unknown>) ?? null,
       installedAt: record.installedAt,
       updatedAt: record.updatedAt,

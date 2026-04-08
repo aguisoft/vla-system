@@ -21,10 +21,50 @@ const STAFF_USERS = [
   { email: 'laura@vla.com', firstName: 'Laura', lastName: 'Sánchez', role: 'PROFESSOR', skinColor: '#F1C27D', hairStyle: 'ponytail', hairColor: '#C4A35A', shirtColor: '#FF9800', accessory: 'none', emoji: '📚', zone: 'cafeteria', posX: 2, posY: 4 },
 ];
 
-async function main() {
-  console.log('🌱 Seeding VLA database...');
+const isProduction = process.env.NODE_ENV === 'production';
 
-  // Create office layout
+async function ensurePresence(userId: string, opts: { zoneId?: string; posX: number; posY: number; checkedIn: boolean }) {
+  await prisma.presenceStatus.upsert({
+    where: { userId },
+    create: { userId, status: 'AVAILABLE', isCheckedIn: opts.checkedIn, currentZoneId: opts.zoneId ?? null, positionX: opts.posX, positionY: opts.posY },
+    update: {},
+  });
+}
+
+async function ensureCheckIn(userId: string) {
+  const existing = await prisma.checkInRecord.findFirst({ where: { userId }, orderBy: { checkInAt: 'desc' } });
+  if (!existing) {
+    await prisma.checkInRecord.create({ data: { userId, source: 'WEB' } });
+  }
+}
+
+async function main() {
+  console.log(`🌱 Seeding VLA database [${isProduction ? 'production' : 'development'}]...`);
+
+  // ── Superadmin (always — both envs) ──────────────────────────────────────────
+  const superAdminPassword = await bcrypt.hash('VLA@admin2024!', 12);
+  const superAdmin = await prisma.user.upsert({
+    where: { email: 'caguinaga@grupovla.com' },
+    create: { email: 'caguinaga@grupovla.com', passwordHash: superAdminPassword, firstName: 'Caguinaga', lastName: 'VLA', role: 'ADMIN', isActive: true },
+    update: { role: 'ADMIN', isActive: true },
+  });
+
+  await prisma.userAvatar.upsert({
+    where: { userId: superAdmin.id },
+    create: { userId: superAdmin.id, skinColor: '#D4A574', hairStyle: 'short', hairColor: '#1A1A1A', shirtColor: '#1B5E20', accessory: 'none', emoji: '⭐' },
+    update: {},
+  });
+  await ensurePresence(superAdmin.id, { posX: 0, posY: 0, checkedIn: false });
+  console.log('✅ Superadmin: caguinaga@grupovla.com / VLA@admin2024!');
+
+  if (isProduction) {
+    console.log('🎉 Production seed complete (demo data skipped).');
+    return;
+  }
+
+  // ── Demo data (development only) ─────────────────────────────────────────────
+
+  // Office layout
   const existingLayout = await prisma.officeLayout.findFirst({ where: { isActive: true } });
   if (!existingLayout) {
     await prisma.officeLayout.create({
@@ -33,7 +73,7 @@ async function main() {
     console.log('✅ Office layout created');
   }
 
-  // Create admin (Josué)
+  // Demo admin (Josué)
   const adminPassword = await bcrypt.hash('admin123', 12);
   const admin = await prisma.user.upsert({
     where: { email: 'josue@vla.com' },
@@ -46,18 +86,11 @@ async function main() {
     create: { userId: admin.id, skinColor: '#D4A574', hairStyle: 'short', hairColor: '#2C2C2C', shirtColor: '#1565C0', accessory: 'none', emoji: '👑' },
     update: {},
   });
+  await ensurePresence(admin.id, { zoneId: 'oficina-josue', posX: 0, posY: 0, checkedIn: true });
+  await ensureCheckIn(admin.id);
+  console.log('✅ Demo admin: josue@vla.com / admin123');
 
-  await prisma.presenceStatus.upsert({
-    where: { userId: admin.id },
-    create: { userId: admin.id, status: 'AVAILABLE', isCheckedIn: true, currentZoneId: 'oficina-josue', positionX: 0, positionY: 0 },
-    update: { status: 'AVAILABLE', isCheckedIn: true, currentZoneId: 'oficina-josue', positionX: 0, positionY: 0 },
-  });
-
-  await prisma.checkInRecord.create({ data: { userId: admin.id, source: 'WEB' } });
-
-  console.log('✅ Admin user created: josue@vla.com / admin123');
-
-  // Create staff users
+  // Demo staff users
   for (const staffData of STAFF_USERS) {
     const password = await bcrypt.hash('staff123', 12);
     const { skinColor, hairStyle, hairColor, shirtColor, accessory, emoji, zone, posX, posY, role, ...userData } = staffData;
@@ -73,17 +106,11 @@ async function main() {
       create: { userId: user.id, skinColor, hairStyle: hairStyle as any, hairColor, shirtColor, accessory: accessory as any, emoji },
       update: {},
     });
-
-    await prisma.presenceStatus.upsert({
-      where: { userId: user.id },
-      create: { userId: user.id, status: 'AVAILABLE', isCheckedIn: true, currentZoneId: zone, positionX: posX, positionY: posY },
-      update: { status: 'AVAILABLE', isCheckedIn: true, currentZoneId: zone, positionX: posX, positionY: posY },
-    });
-
-    await prisma.checkInRecord.create({ data: { userId: user.id, source: 'WEB' } });
+    await ensurePresence(user.id, { zoneId: zone, posX, posY, checkedIn: true });
+    await ensureCheckIn(user.id);
   }
 
-  console.log(`✅ ${STAFF_USERS.length} staff users created (password: staff123)`);
+  console.log(`✅ ${STAFF_USERS.length} demo staff users created (password: staff123)`);
   console.log('🎉 Seed complete!');
 }
 

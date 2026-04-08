@@ -75,12 +75,17 @@ export class PluginContextFactory {
 
       requireAuth: (role?) => {
         return (req: any, res: any, next: any) => {
+          // Accept token from Authorization header OR vla_token cookie
           const authHeader: string | undefined = req.headers?.authorization;
-          if (!authHeader?.startsWith('Bearer ')) {
+          const cookieToken: string | undefined = req.cookies?.vla_token;
+          const token = authHeader?.startsWith('Bearer ')
+            ? authHeader.slice(7)
+            : cookieToken;
+
+          if (!token) {
             return res.status(401).json({ message: 'Unauthorized' });
           }
           try {
-            const token = authHeader.slice(7);
             const payload = jwtService.verify(token) as { sub: string; role: string };
             if (role && payload.role !== role) {
               return res.status(403).json({ message: 'Forbidden' });

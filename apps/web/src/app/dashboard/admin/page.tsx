@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth.store';
 import { usePlugins } from '@/hooks/usePlugins';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { UserRole } from '@vla/shared';
+import { UserRole, PresetRole } from '@vla/shared';
+
+type PermissionEntry = { label: string; group: string; plugin?: string };
 
 interface FullPlugin {
   name: string;
@@ -19,7 +21,17 @@ interface FullPlugin {
   installedAt: string;
 }
 
-type Tab = 'users' | 'plugins' | 'system';
+type Tab = 'users' | 'roles' | 'plugins' | 'system';
+
+interface CustomRole {
+  id: string;
+  name: string;
+  description: string;
+  permissions: string[];
+  color: string;
+  isSystem: boolean;
+  _count?: { users: number };
+}
 
 interface User {
   id: string;
@@ -29,8 +41,11 @@ interface User {
   role: string;
   isActive: boolean;
   createdAt: string;
+  customRoleId: string | null;
+  customRole: { id: string; name: string; color: string } | null;
   bitrixMapping: { bitrixUserId: number } | null;
 }
+
 
 const ROLE_COLORS: Record<string, string> = {
   ADMIN: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
@@ -39,9 +54,146 @@ const ROLE_COLORS: Record<string, string> = {
   STUDENT: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
 };
 
+// ── Small reusable components ─────────────────────────────────────────────────
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ActionMenu({ user: u, currentUserId, onEdit, onResetPassword, onImpersonate, onAssignRole, onToggleActive, onDelete }:
+  {
+    user: User;
+    currentUserId: string;
+    onEdit: () => void;
+    onResetPassword: () => void;
+    onImpersonate: () => void;
+    onAssignRole: () => void;
+    onToggleActive: () => void;
+    onDelete: () => void;
+  }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const isSelf = u.id === currentUserId;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+      >
+        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 py-1 z-20 text-xs">
+          <button
+            onClick={() => { onEdit(); setOpen(false); }}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center gap-2"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+            Cambiar rol
+          </button>
+
+          <button
+            onClick={() => { onResetPassword(); setOpen(false); }}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center gap-2"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+            Restablecer contraseña
+          </button>
+
+          <button
+            onClick={() => { onAssignRole(); setOpen(false); }}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center gap-2"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+            </svg>
+            Asignar rol personalizado
+          </button>
+
+          {!isSelf && u.role !== 'ADMIN' && (
+            <button
+              onClick={() => { onImpersonate(); setOpen(false); }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center gap-2"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              Impersonar
+            </button>
+          )}
+
+          <div className="border-t border-gray-100 dark:border-gray-800 my-1" />
+
+          <button
+            onClick={() => { onToggleActive(); setOpen(false); }}
+            disabled={isSelf}
+            className={cn(
+              'w-full text-left px-3 py-2 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed',
+              u.isActive
+                ? 'hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500'
+                : 'hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600',
+            )}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={u.isActive
+                ? 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636'
+                : 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'} />
+            </svg>
+            {u.isActive ? 'Desactivar' : 'Activar'}
+          </button>
+
+          <button
+            onClick={() => { onDelete(); setOpen(false); }}
+            disabled={isSelf}
+            className="w-full text-left px-3 py-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Eliminar
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function AdminPage() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, setUser, stopImpersonation } = useAuthStore();
   const plugins = usePlugins();
   const [tab, setTab] = useState<Tab>('users');
   const [users, setUsers] = useState<User[]>([]);
@@ -51,12 +203,46 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
 
+  // Modals
+  const [pwdModal, setPwdModal] = useState<User | null>(null);
+  const [pwdValue, setPwdValue] = useState('');
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [pwdMsg, setPwdMsg] = useState<string | null>(null);
+
+  const [deleteModal, setDeleteModal] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Roles tab state
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
+  const [loadingRoles, setLoadingRoles] = useState(false);
+  const [roleModal, setRoleModal] = useState<{ mode: 'create' | 'edit'; role?: CustomRole } | null>(null);
+  const [roleForm, setRoleForm] = useState({ name: '', description: '', color: '#6B7280', permissions: [] as string[] });
+  const [roleSaving, setRoleSaving] = useState(false);
+  const [roleMsg, setRoleMsg] = useState<string | null>(null);
+  const [assignModal, setAssignModal] = useState<User | null>(null);
+
+  // Dynamic permissions registry (core + plugin-registered)
+  const [permissionsMap, setPermissionsMap] = useState<Record<string, PermissionEntry>>({});
+  const [presetRoles, setPresetRoles] = useState<PresetRole[]>([]);
+
+  const permissionGroups = useMemo(() =>
+    Object.entries(permissionsMap).reduce<Record<string, { key: string; label: string; plugin?: string }[]>>(
+      (acc, [key, meta]) => {
+        if (!acc[meta.group]) acc[meta.group] = [];
+        acc[meta.group].push({ key, label: meta.label, plugin: meta.plugin });
+        return acc;
+      }, {}
+    ), [permissionsMap]);
+
   // Plugins tab state
   const [allPlugins, setAllPlugins] = useState<FullPlugin[]>([]);
   const [loadingPlugins, setLoadingPlugins] = useState(false);
   const [togglingPlugin, setTogglingPlugin] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [restarting, setRestarting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Guard: admin only
@@ -66,8 +252,104 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (tab === 'users') loadUsers();
+    if (tab === 'roles') loadRoles();
     if (tab === 'plugins') loadAllPlugins();
   }, [tab]);
+
+  async function loadRoles() {
+    setLoadingRoles(true);
+    try {
+      const [rolesRes, permsRes] = await Promise.all([
+        api.get('/roles'),
+        api.get('/permissions'),
+      ]);
+      setCustomRoles(rolesRes.data);
+      setPermissionsMap(permsRes.data.permissions ?? {});
+      setPresetRoles(permsRes.data.presetRoles ?? []);
+    } finally {
+      setLoadingRoles(false);
+    }
+  }
+
+  function openCreateRole() {
+    setRoleForm({ name: '', description: '', color: '#6B7280', permissions: [] });
+    setRoleMsg(null);
+    setRoleModal({ mode: 'create' });
+  }
+
+  function openEditRole(role: CustomRole) {
+    setRoleForm({ name: role.name, description: role.description, color: role.color, permissions: role.permissions });
+    setRoleMsg(null);
+    setRoleModal({ mode: 'edit', role });
+  }
+
+  function togglePermission(perm: string) {
+    setRoleForm((prev) => ({
+      ...prev,
+      permissions: prev.permissions.includes(perm)
+        ? prev.permissions.filter((p) => p !== perm)
+        : [...prev.permissions, perm],
+    }));
+  }
+
+  async function saveRole() {
+    if (!roleForm.name.trim()) { setRoleMsg('El nombre es requerido'); return; }
+    setRoleSaving(true);
+    setRoleMsg(null);
+    try {
+      if (roleModal?.mode === 'create') {
+        const res = await api.post('/roles', roleForm);
+        setCustomRoles((prev) => [...prev, res.data]);
+        flash(true, `Rol "${res.data.name}" creado`);
+      } else if (roleModal?.role) {
+        const res = await api.patch(`/roles/${roleModal.role.id}`, roleForm);
+        setCustomRoles((prev) => prev.map((r) => r.id === res.data.id ? { ...r, ...res.data } : r));
+        flash(true, `Rol "${res.data.name}" actualizado`);
+      }
+      setRoleModal(null);
+    } catch (err: any) {
+      setRoleMsg(err?.response?.data?.message ?? 'Error al guardar');
+    } finally {
+      setRoleSaving(false);
+    }
+  }
+
+  async function deleteRole(role: CustomRole) {
+    if (!confirm(`¿Eliminar el rol "${role.name}"? Los usuarios asignados volverán a su rol base.`)) return;
+    try {
+      await api.delete(`/roles/${role.id}`);
+      setCustomRoles((prev) => prev.filter((r) => r.id !== role.id));
+      flash(true, `Rol "${role.name}" eliminado`);
+    } catch (err: any) {
+      flash(false, err?.response?.data?.message ?? 'No se pudo eliminar');
+    }
+  }
+
+  async function assignRole(userId: string, roleId: string | null) {
+    try {
+      if (roleId) {
+        await api.patch(`/roles/${roleId}/assign/${userId}`);
+      } else {
+        // find current role to call the remove endpoint
+        const u = users.find((u) => u.id === userId);
+        if (u?.customRoleId) await api.delete(`/roles/${u.customRoleId}/assign/${userId}`);
+      }
+      setUsers((prev) => prev.map((u) => {
+        if (u.id !== userId) return u;
+        const role = customRoles.find((r) => r.id === roleId) ?? null;
+        return { ...u, customRoleId: roleId, customRole: role ? { id: role.id, name: role.name, color: role.color } : null };
+      }));
+      setAssignModal(null);
+      flash(true, roleId ? 'Rol personalizado asignado' : 'Rol personalizado eliminado');
+    } catch (err: any) {
+      flash(false, err?.response?.data?.message ?? 'Error al asignar rol');
+    }
+  }
+
+  function flash(ok: boolean, text: string) {
+    setActionMsg({ ok, text });
+    setTimeout(() => setActionMsg(null), 3500);
+  }
 
   async function loadAllPlugins() {
     setLoadingPlugins(true);
@@ -101,7 +383,35 @@ export default function AdminPage() {
       const res = await api.post('/plugins/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setUploadMsg({ ok: true, text: res.data.message });
+
+      const isRestarting = res.data.message?.toLowerCase().includes('restart');
+      if (isRestarting) {
+        setUploading(false);
+        setRestarting(true);
+        setUploadMsg({ ok: true, text: 'Reiniciando servidor...' });
+
+        // Poll until the API is back up
+        let attempts = 0;
+        const maxAttempts = 30; // 30s max
+        await new Promise<void>((resolve) => {
+          const interval = setInterval(async () => {
+            attempts++;
+            try {
+              await api.get('/auth/me');
+              clearInterval(interval);
+              resolve();
+            } catch {
+              if (attempts >= maxAttempts) { clearInterval(interval); resolve(); }
+            }
+          }, 1000);
+        });
+
+        setRestarting(false);
+        setUploadMsg({ ok: true, text: '✓ Plugin instalado correctamente' });
+        await loadAllPlugins();
+      } else {
+        setUploadMsg({ ok: true, text: res.data.message });
+      }
     } catch (err: any) {
       setUploadMsg({ ok: false, text: err?.response?.data?.message ?? 'Error al subir el plugin' });
     } finally {
@@ -121,18 +431,77 @@ export default function AdminPage() {
   }
 
   async function toggleActive(u: User) {
-    await api.patch(`/users/${u.id}`, { isActive: !u.isActive });
-    setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, isActive: !u.isActive } : x));
+    try {
+      await api.patch(`/users/${u.id}`, { isActive: !u.isActive });
+      setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, isActive: !u.isActive } : x));
+      flash(true, `${u.firstName} ${u.isActive ? 'desactivado' : 'activado'}`);
+    } catch {
+      flash(false, 'No se pudo cambiar el estado');
+    }
   }
 
-  async function saveRole(id: string) {
+  async function saveUserRole(id: string) {
     setSaving(true);
     try {
       await api.patch(`/users/${id}`, { role: editRole });
       setUsers((prev) => prev.map((x) => x.id === id ? { ...x, role: editRole } : x));
       setEditingId(null);
+      flash(true, 'Rol actualizado');
+    } catch {
+      flash(false, 'No se pudo cambiar el rol');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!pwdModal || pwdValue.length < 6) return;
+    setPwdSaving(true);
+    setPwdMsg(null);
+    try {
+      await api.patch(`/users/${pwdModal.id}/password`, { password: pwdValue });
+      setPwdModal(null);
+      setPwdValue('');
+      flash(true, 'Contraseña actualizada');
+    } catch (err: any) {
+      setPwdMsg(err?.response?.data?.message ?? 'Error al cambiar contraseña');
+    } finally {
+      setPwdSaving(false);
+    }
+  }
+
+  async function handleImpersonate(u: User) {
+    try {
+      const res = await api.post(`/auth/impersonate/${u.id}`);
+      setUser({ ...res.data.user, isImpersonated: true, impersonatedBy: res.data.impersonatedBy });
+      router.push(u.role === 'ADMIN' ? '/dashboard/admin' : '/dashboard/welcome');
+    } catch (err: any) {
+      flash(false, err?.response?.data?.message ?? 'No se pudo impersonar');
+    }
+  }
+
+  async function handleStopImpersonation() {
+    try {
+      await stopImpersonation();
+      router.push('/dashboard/admin');
+    } catch {
+      flash(false, 'No se pudo terminar la impersonación');
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteModal) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/users/${deleteModal.id}`);
+      setUsers((prev) => prev.filter((x) => x.id !== deleteModal.id));
+      setDeleteModal(null);
+      flash(true, `${deleteModal.firstName} eliminado`);
+    } catch (err: any) {
+      flash(false, err?.response?.data?.message ?? 'No se pudo eliminar');
+      setDeleteModal(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -142,12 +511,24 @@ export default function AdminPage() {
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'users', label: 'Usuarios' },
+    { key: 'roles', label: 'Roles' },
     { key: 'plugins', label: 'Módulos' },
     { key: 'system', label: 'Sistema' },
   ];
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-gray-50 dark:bg-gray-950">
+
+      {/* Toast */}
+      {actionMsg && (
+        <div className={cn(
+          'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition-all',
+          actionMsg.ok ? 'bg-green-500 text-white' : 'bg-red-500 text-white',
+        )}>
+          {actionMsg.text}
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex items-center gap-4 px-6 py-3 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
         <div>
@@ -217,19 +598,44 @@ export default function AdminPage() {
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{u.email}</td>
                         <td className="px-4 py-3">
                           {editingId === u.id ? (
-                            <select
-                              value={editRole}
-                              onChange={(e) => setEditRole(e.target.value)}
-                              className="text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                            >
-                              {Object.values(UserRole).map((r) => (
-                                <option key={r} value={r}>{r}</option>
-                              ))}
-                            </select>
+                            <div className="flex items-center gap-1.5">
+                              <select
+                                value={editRole}
+                                onChange={(e) => setEditRole(e.target.value)}
+                                className="text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                              >
+                                {Object.values(UserRole).map((r) => (
+                                  <option key={r} value={r}>{r}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => saveUserRole(u.id)}
+                                disabled={saving}
+                                className="px-2 py-1 rounded-lg bg-green-500 hover:bg-green-600 text-white text-xs disabled:opacity-60"
+                              >
+                                {saving ? '...' : '✓'}
+                              </button>
+                              <button
+                                onClick={() => setEditingId(null)}
+                                className="px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           ) : (
-                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ROLE_COLORS[u.role] ?? 'bg-gray-100 text-gray-600')}>
-                              {u.role}
-                            </span>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', ROLE_COLORS[u.role] ?? 'bg-gray-100 text-gray-600')}>
+                                {u.role}
+                              </span>
+                              {u.customRole && (
+                                <span
+                                  className="px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                                  style={{ backgroundColor: u.customRole.color }}
+                                >
+                                  {u.customRole.name}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-400">
@@ -242,47 +648,18 @@ export default function AdminPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {editingId === u.id ? (
-                              <>
-                                <button
-                                  onClick={() => saveRole(u.id)}
-                                  disabled={saving}
-                                  className="px-2 py-1 rounded-lg bg-green-500 hover:bg-green-600 text-white text-xs disabled:opacity-60"
-                                >
-                                  {saving ? '...' : 'Guardar'}
-                                </button>
-                                <button
-                                  onClick={() => setEditingId(null)}
-                                  className="px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-                                >
-                                  Cancelar
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => { setEditingId(u.id); setEditRole(u.role); }}
-                                  className="px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-                                >
-                                  Rol
-                                </button>
-                                <button
-                                  onClick={() => toggleActive(u)}
-                                  disabled={u.id === user?.id}
-                                  title={u.id === user?.id ? 'No puedes desactivar tu propia cuenta' : ''}
-                                  className={cn(
-                                    'px-2 py-1 rounded-lg text-xs disabled:opacity-40 disabled:cursor-not-allowed',
-                                    u.isActive
-                                      ? 'border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
-                                      : 'border border-green-200 dark:border-green-800 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20',
-                                  )}
-                                >
-                                  {u.isActive ? 'Desactivar' : 'Activar'}
-                                </button>
-                              </>
-                            )}
-                          </div>
+                          {editingId !== u.id && (
+                            <ActionMenu
+                              user={u}
+                              currentUserId={user?.id ?? ''}
+                              onEdit={() => { setEditingId(u.id); setEditRole(u.role); }}
+                              onResetPassword={() => { setPwdModal(u); setPwdValue(''); setPwdMsg(null); }}
+                              onImpersonate={() => handleImpersonate(u)}
+                              onAssignRole={() => setAssignModal(u)}
+                              onToggleActive={() => toggleActive(u)}
+                              onDelete={() => setDeleteModal(u)}
+                            />
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -293,23 +670,175 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── ROLES TAB ── */}
+        {tab === 'roles' && (
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Roles personalizados</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Define conjuntos de permisos granulares y asígnalos a usuarios.</p>
+              </div>
+              <button
+                onClick={openCreateRole}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500 hover:bg-green-600 text-white text-xs font-medium transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Nuevo rol
+              </button>
+            </div>
+
+            {loadingRoles ? (
+              <div className="flex justify-center py-10">
+                <div className="w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : customRoles.length === 0 ? (
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-10 text-center">
+                <p className="text-sm text-gray-400">No hay roles personalizados. Crea el primero.</p>
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {customRoles.map((role) => (
+                  <div key={role.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: role.color }} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-900 dark:text-white text-sm">{role.name}</span>
+                            {role.isSystem && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 font-medium">Sistema</span>
+                            )}
+                            <span className="text-xs text-gray-400">{role._count?.users ?? 0} usuario{role._count?.users !== 1 ? 's' : ''}</span>
+                          </div>
+                          {role.description && <p className="text-xs text-gray-400 mt-0.5">{role.description}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => openEditRole(role)}
+                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          Editar
+                        </button>
+                        {!role.isSystem && (
+                          <button
+                            onClick={() => deleteRole(role)}
+                            className="px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                          >
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {(role.permissions as string[]).map((p) => {
+                        const meta = permissionsMap[p];
+                        return (
+                          <span key={p} className={cn(
+                            'px-2 py-0.5 rounded-md text-[11px] font-medium',
+                            meta?.plugin
+                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+                          )}>
+                            {meta?.label ?? p}
+                          </span>
+                        );
+                      })}
+                      {role.permissions.length === 0 && (
+                        <span className="text-xs text-gray-300 dark:text-gray-600 italic">Sin permisos</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Plugin preset roles ── */}
+            {presetRoles.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Roles sugeridos por plugins</h3>
+                  <span className="text-xs text-gray-400">Creados automáticamente por plugins activos. Puedes modificarlos después.</span>
+                </div>
+                <div className="grid gap-2">
+                  {presetRoles.map((preset) => {
+                    const alreadyExists = customRoles.some(
+                      (r) => r.name.toLowerCase() === preset.name.toLowerCase(),
+                    );
+                    return (
+                      <div
+                        key={`${preset.plugin}-${preset.name}`}
+                        className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/50 rounded-xl p-3 flex items-center justify-between gap-4"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm text-gray-900 dark:text-white">{preset.name}</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium">
+                              {preset.plugin}
+                            </span>
+                            {alreadyExists && (
+                              <span className="text-[10px] text-gray-400 italic">ya existe</span>
+                            )}
+                          </div>
+                          {preset.description && (
+                            <p className="text-xs text-gray-400 mt-0.5">{preset.description}</p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {preset.permissions.slice(0, 5).map((p) => (
+                              <span key={p} className="text-[10px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 px-1.5 py-0.5 rounded">
+                                {permissionsMap[p]?.label ?? p}
+                              </span>
+                            ))}
+                            {preset.permissions.length > 5 && (
+                              <span className="text-[10px] text-gray-400">+{preset.permissions.length - 5} más</span>
+                            )}
+                          </div>
+                        </div>
+                        {!alreadyExists && (
+                          <button
+                            onClick={() => {
+                              setRoleForm({
+                                name: preset.name,
+                                description: preset.description ?? '',
+                                color: preset.color ?? '#3B82F6',
+                                permissions: preset.permissions,
+                              });
+                              setRoleModal({ mode: 'create' });
+                              setRoleMsg(null);
+                            }}
+                            className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium"
+                          >
+                            Crear
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── PLUGINS TAB ── */}
         {tab === 'plugins' && (
           <div className="max-w-3xl mx-auto space-y-4">
-
-            {/* Upload card */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
               <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Instalar plugin externo</p>
               <p className="text-xs text-gray-400 mb-3">Sube un archivo <code className="font-mono">.vla.zip</code> que contenga <code className="font-mono">plugin.json</code> y <code className="font-mono">dist/index.js</code>. El servidor reiniciará automáticamente.</p>
               <div className="flex items-center gap-3">
                 <label className={cn(
                   'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors',
-                  uploading
+                  uploading || restarting
                     ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
                     : 'bg-green-500 hover:bg-green-600 text-white',
                 )}>
                   {uploading ? (
-                    <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Subiendo...</>
+                    <><span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />Subiendo...</>
+                  ) : restarting ? (
+                    <><span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />Reiniciando...</>
                   ) : (
                     <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>Seleccionar .vla.zip</>
                   )}
@@ -318,19 +847,19 @@ export default function AdminPage() {
                     type="file"
                     accept=".zip"
                     className="hidden"
-                    disabled={uploading}
+                    disabled={uploading || restarting}
                     onChange={handleUpload}
                   />
                 </label>
                 {uploadMsg && (
                   <span className={cn('text-xs px-3 py-1.5 rounded-lg', uploadMsg.ok ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400')}>
+                    {restarting && <span className="inline-block w-2.5 h-2.5 border-2 border-green-500 border-t-transparent rounded-full animate-spin mr-1.5 align-middle" />}
                     {uploadMsg.text}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Plugin list */}
             {loadingPlugins ? (
               <div className="flex justify-center py-10">
                 <div className="w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
@@ -423,6 +952,227 @@ export default function AdminPage() {
         )}
 
       </div>
+
+      {/* ── Create / Edit role modal ── */}
+      {roleModal && (
+        <Modal
+          title={roleModal.mode === 'create' ? 'Nuevo rol' : `Editar rol — ${roleModal.role?.name}`}
+          onClose={() => setRoleModal(null)}
+        >
+          <div className="space-y-3 mb-4">
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Nombre</label>
+                <input
+                  type="text"
+                  value={roleForm.name}
+                  onChange={(e) => setRoleForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="ej. Editor de contenido"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Color</label>
+                <input
+                  type="color"
+                  value={roleForm.color}
+                  onChange={(e) => setRoleForm((p) => ({ ...p, color: e.target.value }))}
+                  className="h-9 w-14 rounded-xl border border-gray-200 dark:border-gray-700 cursor-pointer"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Descripción (opcional)</label>
+              <input
+                type="text"
+                value={roleForm.description}
+                onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))}
+                placeholder="Describe para qué sirve este rol"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Permisos</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setRoleForm((p) => ({ ...p, permissions: Object.keys(permissionsMap) }))}
+                  className="text-[11px] text-green-600 hover:underline"
+                >Todos</button>
+                <span className="text-gray-300 dark:text-gray-600">·</span>
+                <button
+                  onClick={() => setRoleForm((p) => ({ ...p, permissions: [] }))}
+                  className="text-[11px] text-gray-400 hover:underline"
+                >Ninguno</button>
+              </div>
+            </div>
+            <div className="border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+              {Object.entries(permissionGroups).map(([group, perms]) => (
+                <div key={group}>
+                  <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                    {group}
+                    {perms[0]?.plugin && (
+                      <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[9px] font-medium normal-case">
+                        plugin: {perms[0].plugin}
+                      </span>
+                    )}
+                  </div>
+                  {perms.map(({ key, label, plugin }) => (
+                    <label
+                      key={key}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={roleForm.permissions.includes(key)}
+                        onChange={() => togglePermission(key)}
+                        className="w-3.5 h-3.5 rounded accent-green-500"
+                      />
+                      <span className="text-xs text-gray-700 dark:text-gray-300">{label}</span>
+                      {plugin && (
+                        <span className="ml-auto text-[9px] text-blue-400 font-mono">{plugin}</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              ))}
+              {Object.keys(permissionGroups).length === 0 && (
+                <div className="px-3 py-4 text-xs text-gray-400 text-center">Cargando permisos...</div>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1">{roleForm.permissions.length} de {Object.keys(permissionsMap).length} permisos seleccionados</p>
+          </div>
+
+          {roleMsg && <p className="text-xs text-red-500 mb-3">{roleMsg}</p>}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setRoleModal(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+              Cancelar
+            </button>
+            <button
+              onClick={saveRole}
+              disabled={roleSaving}
+              className="px-4 py-2 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {roleSaving ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Assign role modal ── */}
+      {assignModal && (
+        <Modal title={`Asignar rol — ${assignModal.firstName} ${assignModal.lastName}`} onClose={() => setAssignModal(null)}>
+          <p className="text-xs text-gray-400 mb-4">
+            El rol personalizado añade permisos extra sobre el rol base (<strong>{assignModal.role}</strong>).
+          </p>
+          <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+            <button
+              onClick={() => assignRole(assignModal.id, null)}
+              className={cn(
+                'w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
+                !assignModal.customRoleId
+                  ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300',
+              )}
+            >
+              <span className="font-medium">Sin rol personalizado</span>
+              <span className="text-xs text-gray-400 ml-2">Usa los permisos del rol base</span>
+            </button>
+            {customRoles.map((role) => (
+              <button
+                key={role.id}
+                onClick={() => assignRole(assignModal.id, role.id)}
+                className={cn(
+                  'w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
+                  assignModal.customRoleId === role.id
+                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800',
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: role.color }} />
+                  <span className="font-medium text-gray-900 dark:text-white">{role.name}</span>
+                  {role.description && <span className="text-xs text-gray-400">{role.description}</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {(role.permissions as string[]).slice(0, 4).map((p) => (
+                    <span key={p} className="text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded">
+                      {permissionsMap[p]?.label ?? p}
+                    </span>
+                  ))}
+                  {role.permissions.length > 4 && (
+                    <span className="text-[10px] text-gray-400">+{role.permissions.length - 4} más</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <button onClick={() => setAssignModal(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+              Cerrar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Reset password modal ── */}
+      {pwdModal && (
+        <Modal title={`Restablecer contraseña — ${pwdModal.firstName}`} onClose={() => setPwdModal(null)}>
+          <p className="text-xs text-gray-400 mb-4">La nueva contraseña debe tener al menos 6 caracteres.</p>
+          <input
+            type="password"
+            placeholder="Nueva contraseña"
+            value={pwdValue}
+            onChange={(e) => setPwdValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleResetPassword()}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 mb-3"
+          />
+          {pwdMsg && <p className="text-xs text-red-500 mb-3">{pwdMsg}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setPwdModal(null)}
+              className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleResetPassword}
+              disabled={pwdSaving || pwdValue.length < 6}
+              className="px-4 py-2 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {pwdSaving ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Delete confirm modal ── */}
+      {deleteModal && (
+        <Modal title="Eliminar usuario" onClose={() => setDeleteModal(null)}>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
+            ¿Estás seguro de que quieres eliminar a <strong>{deleteModal.firstName} {deleteModal.lastName}</strong>?
+          </p>
+          <p className="text-xs text-red-500 mb-6">Esta acción no se puede deshacer.</p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setDeleteModal(null)}
+              className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {deleting ? 'Eliminando...' : 'Eliminar'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
     </div>
   );
 }

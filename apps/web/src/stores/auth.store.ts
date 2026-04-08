@@ -4,13 +4,14 @@ import { AuthUser } from '@vla/shared';
 import api from '@/lib/api';
 
 interface AuthState {
-  user: AuthUser | null;
+  user: (AuthUser & { isImpersonated?: boolean; impersonatedBy?: string }) | null;
   isAuthenticated: boolean;
   _hasHydrated: boolean;
   setHasHydrated: (value: boolean) => void;
   login: (email: string, password: string) => Promise<void>;
-  setUser: (user: AuthUser) => void;
+  setUser: (user: AuthUser & { isImpersonated?: boolean; impersonatedBy?: string }) => void;
   logout: () => Promise<void>;
+  stopImpersonation: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -34,6 +35,11 @@ export const useAuthStore = create<AuthState>()(
       logout: async () => {
         await api.post('/auth/logout').catch(() => {});
         set({ user: null, isAuthenticated: false });
+      },
+
+      stopImpersonation: async () => {
+        const { data } = await api.post('/auth/impersonate/stop');
+        set({ user: data.user, isAuthenticated: true });
       },
     }),
     {
