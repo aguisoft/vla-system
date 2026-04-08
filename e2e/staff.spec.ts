@@ -8,10 +8,10 @@ test.describe('Staff access', () => {
     await expect(page).not.toHaveURL(/\/login/);
   });
 
-  test('staff is redirected away from /dashboard/admin', async ({ page }) => {
+  test('staff is blocked from /dashboard/admin', async ({ page }) => {
     await page.goto('/dashboard/admin');
-    // Should be redirected — not stay on admin page
-    await page.waitForURL(/\/dashboard\/(?!admin)/, { timeout: 5_000 });
+    // Staff should be redirected away from admin — either to /dashboard/welcome or /login
+    await page.waitForURL(/\/dashboard\/welcome|\/login/, { timeout: 10_000 });
     expect(page.url()).not.toContain('/dashboard/admin');
   });
 

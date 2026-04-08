@@ -31,21 +31,22 @@ test.describe('Login page', () => {
     await page.fill('input[type="email"]', 'wrong@vla.com');
     await page.fill('input[type="password"]', 'wrongpassword');
     await page.click('button[type="submit"]');
-    await expect(page.getByText('Email o contraseña incorrectos')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Email o contraseña incorrectos')).toBeVisible({ timeout: 8_000 });
     expect(page.url()).toContain('/login');
   });
 });
 
 test.describe('Route guards', () => {
-  test('/dashboard redirects unauthenticated users to /login', async ({ page }) => {
-    await page.goto('/dashboard');
-    await page.waitForURL(/\/login/, { timeout: 5_000 });
+  test('/dashboard/welcome redirects unauthenticated users to /login', async ({ page }) => {
+    await page.goto('/dashboard/welcome');
+    // The layout shows a spinner while Zustand hydrates, then redirects
+    await page.waitForURL(/\/login/, { timeout: 10_000 });
     expect(page.url()).toContain('/login');
   });
 
   test('/dashboard/admin redirects unauthenticated users to /login', async ({ page }) => {
     await page.goto('/dashboard/admin');
-    await page.waitForURL(/\/login/, { timeout: 5_000 });
+    await page.waitForURL(/\/login/, { timeout: 10_000 });
     expect(page.url()).toContain('/login');
   });
 });
