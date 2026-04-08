@@ -7,8 +7,10 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
+import { LogBuffer } from './core/log-buffer/log-buffer';
 
 async function bootstrap() {
+  LogBuffer.init();
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(PinoLogger));

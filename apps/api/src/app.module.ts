@@ -15,6 +15,7 @@ import { RedisModule } from './core/redis/redis.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { RolesModule } from './core/roles/roles.module';
 import { PermissionsModule } from './core/permissions/permissions.module';
+import { LogBufferModule } from './core/log-buffer/log-buffer.module';
 
 @Module({
   providers: [
@@ -66,6 +67,7 @@ import { PermissionsModule } from './core/permissions/permissions.module';
     PermissionsModule,
     // Built-in modules
     AdminModule,
+    LogBufferModule,
   ],
 })
 export class AppModule {}

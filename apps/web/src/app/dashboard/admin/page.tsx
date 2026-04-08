@@ -54,6 +54,119 @@ const ROLE_COLORS: Record<string, string> = {
   STUDENT: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
 };
 
+// ── Log Viewer ────────────────────────────────────────────────────────────────
+
+interface LogEntry {
+  id: number;
+  ts: string;
+  level: string;
+  msg: string;
+  context?: string;
+}
+
+type LogLevel = 'all' | 'error' | 'warn' | 'info';
+
+const LEVEL_COLORS: Record<string, string> = {
+  info:  'text-gray-300',
+  debug: 'text-gray-500',
+  trace: 'text-gray-600',
+  warn:  'text-yellow-400',
+  error: 'text-red-400',
+  fatal: 'text-red-600',
+};
+
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toTimeString().slice(0, 8);
+  } catch {
+    return iso;
+  }
+}
+
+function LogViewer() {
+  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [filter, setFilter] = useState<LogLevel>('all');
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const fetchLogs = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get<{ entries: LogEntry[] }>('/system/logs?limit=300');
+      setEntries(res.data.entries);
+    } catch {
+      // silently ignore fetch errors
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchLogs();
+    const id = setInterval(() => { void fetchLogs(); }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [entries]);
+
+  const visible = filter === 'all'
+    ? entries
+    : entries.filter((e) => e.level === filter);
+
+  const FILTER_BTNS: { label: string; value: LogLevel }[] = [
+    { label: 'All', value: 'all' },
+    { label: 'Error', value: 'error' },
+    { label: 'Warn', value: 'warn' },
+    { label: 'Info', value: 'info' },
+  ];
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          Logs del servidor {loading && <span className="ml-1 text-gray-500">(actualizando…)</span>}
+        </p>
+        <div className="flex gap-1">
+          {FILTER_BTNS.map((btn) => (
+            <button
+              key={btn.value}
+              onClick={() => setFilter(btn.value)}
+              className={cn(
+                'px-2 py-0.5 rounded text-[11px] font-medium transition-colors',
+                filter === btn.value
+                  ? 'bg-gray-700 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700',
+              )}
+            >
+              {btn.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-gray-950 text-gray-100 rounded-2xl font-mono text-[11px] overflow-y-auto max-h-[400px] p-3 space-y-0.5">
+        {visible.length === 0 ? (
+          <span className="text-gray-600">No hay entradas.</span>
+        ) : (
+          [...visible].reverse().map((entry) => (
+            <div key={entry.id} className={cn('leading-relaxed', LEVEL_COLORS[entry.level] ?? 'text-gray-300')}>
+              <span className="text-gray-500">[{formatTime(entry.ts)}]</span>
+              {' '}
+              <span className="uppercase font-semibold">[{entry.level}]</span>
+              {entry.context && <span className="text-gray-400"> [{entry.context}]</span>}
+              {' '}{entry.msg}
+            </div>
+          ))
+        )}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
 // ── Small reusable components ─────────────────────────────────────────────────
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -948,6 +1061,8 @@ export default function AdminPage() {
                 <li>Subir desde la pestaña <strong>Módulos</strong> → el servidor reinicia automáticamente</li>
               </ol>
             </div>
+
+            <LogViewer />
           </div>
         )}
 
