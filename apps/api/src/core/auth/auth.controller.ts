@@ -114,13 +114,20 @@ export class AuthController {
     @Request() req: any,
     @Res() res: Response,
   ) {
-    if (!req.user) throw new UnauthorizedException();
-    const user = await this.authService.findOrCreateGoogleUser(req.user);
-    const { access_token } = await this.authService.login(user);
     const frontendUrl = this.configService.getOrThrow('FRONTEND_URL');
 
-    // Set httpOnly cookie — NO token in URL
-    res.cookie('vla_token', access_token, COOKIE_OPTIONS);
-    res.redirect(`${frontendUrl}/auth/callback`);
+    if (!req.user) {
+      return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent('Error de autenticación')}`);
+    }
+
+    try {
+      const user = await this.authService.findOrCreateGoogleUser(req.user);
+      const { access_token } = await this.authService.login(user);
+      res.cookie('vla_token', access_token, COOKIE_OPTIONS);
+      res.redirect(`${frontendUrl}/auth/callback`);
+    } catch (e: any) {
+      const msg = e.message ?? 'No tienes acceso al sistema';
+      res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(msg)}`);
+    }
   }
 }

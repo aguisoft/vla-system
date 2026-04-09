@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -9,6 +9,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Show error from OAuth redirect (e.g., "No tienes una cuenta en el sistema")
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get('error');
+    if (oauthError) {
+      setError(oauthError);
+      window.history.replaceState({}, '', '/login');
+    }
+  }, []);
   const { login } = useAuthStore();
   const router = useRouter();
 
