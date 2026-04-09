@@ -32,7 +32,7 @@ export function discoverPlugins(): DiscoveredPlugin[] {
   const discovered: DiscoveredPlugin[] = [];
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
     const pluginDir = path.join(PLUGINS_DIR, entry.name);
     const manifestPath = path.join(pluginDir, 'plugin.json');

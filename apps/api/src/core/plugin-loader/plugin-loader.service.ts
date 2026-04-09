@@ -50,6 +50,7 @@ export class PluginLoaderService implements OnModuleInit {
             icon: manifest.icon,
             adminOnly: manifest.adminOnly,
             hasFrontend,
+            accessPermissions: manifest.accessPermissions ?? [],
             settingsSchema: manifest.settings,
             unmetRequirements: unmet,
           });
@@ -69,6 +70,7 @@ export class PluginLoaderService implements OnModuleInit {
           icon: manifest.icon,
           adminOnly: manifest.adminOnly,
           hasFrontend,
+          accessPermissions: manifest.accessPermissions ?? [],
           settingsSchema: manifest.settings,
           onInstall: definition.onInstall?.bind(definition),
           onActivate: undefined,
@@ -83,6 +85,14 @@ export class PluginLoaderService implements OnModuleInit {
         } catch (err) {
           this.logger.error(`Plugin "${manifest.name}" migration failed — plugin may not function correctly`);
         }
+
+        // Error handler: catch unhandled errors in plugin routes so they don't crash the API
+        pluginRouter.use((err: any, _req: any, res: any, _next: any) => {
+          this.logger.error(`Plugin "${manifest.name}" route error: ${err?.message ?? err}`);
+          if (!res.headersSent) {
+            res.status(500).json({ message: 'Plugin error', plugin: manifest.name, error: err?.message });
+          }
+        });
 
         const mountPath = `/api/v1/p/${manifest.name}`;
         expressApp.use(mountPath, pluginRouter);

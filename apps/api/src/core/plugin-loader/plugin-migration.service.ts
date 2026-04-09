@@ -92,9 +92,17 @@ export class PluginMigrationService {
       }
 
       try {
-        // Run migration with plugin schema
-        const sql = `SET search_path TO "${schema}", public;\n${mig.upSql}`;
-        await this.prisma.$executeRawUnsafe(sql);
+        // Set search path then run each statement individually
+        await this.prisma.$executeRawUnsafe(`SET search_path TO "${schema}", public`);
+        // Split on semicolons that end a line (handles multi-line statements)
+        const statements = mig.upSql
+          .replace(/--[^\n]*/g, '') // strip comments
+          .split(';')
+          .map(s => s.trim())
+          .filter(s => s.length > 0);
+        for (const stmt of statements) {
+          await this.prisma.$executeRawUnsafe(stmt);
+        }
 
         // Record migration
         await this.prisma.pluginMigration.create({
@@ -143,8 +151,9 @@ export class PluginMigrationService {
 
       if (mig.downSql) {
         try {
-          const sql = `SET search_path TO "${schema}", public;\n${mig.downSql}`;
-          await this.prisma.$executeRawUnsafe(sql);
+          await this.prisma.$executeRawUnsafe(`SET search_path TO "${schema}", public`);
+          const stmts = mig.downSql.split(/;\s*$/m).map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('--'));
+          for (const stmt of stmts) await this.prisma.$executeRawUnsafe(stmt);
           this.logger.log(`Migration rolled back: ${pluginName}/${mig.version}`);
         } catch (err) {
           this.logger.error(`Rollback FAILED: ${pluginName}/${mig.version}: ${err instanceof Error ? err.message : String(err)}`);

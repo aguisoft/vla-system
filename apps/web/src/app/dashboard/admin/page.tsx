@@ -579,11 +579,12 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-function ActionMenu({ user: u, currentUserId, onEdit, onResetPassword, onImpersonate, onAssignRole, onToggleActive, onDelete }:
+function ActionMenu({ user: u, currentUserId, onEdit, onEditUser, onResetPassword, onImpersonate, onAssignRole, onToggleActive, onDelete }:
   {
     user: User;
     currentUserId: string;
     onEdit: () => void;
+    onEditUser: () => void;
     onResetPassword: () => void;
     onImpersonate: () => void;
     onAssignRole: () => void;
@@ -616,6 +617,15 @@ function ActionMenu({ user: u, currentUserId, onEdit, onResetPassword, onImperso
 
       {open && (
         <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 py-1 z-20 text-xs">
+          <button
+            onClick={() => { onEditUser(); setOpen(false); }}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center gap-2"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            Editar datos
+          </button>
           <button
             onClick={() => { onEdit(); setOpen(false); }}
             className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center gap-2"
@@ -716,6 +726,9 @@ export default function AdminPage() {
   const [search, setSearch] = useState('');
 
   // Modals
+  const [userModal, setUserModal] = useState<{ mode: 'create' | 'edit'; user?: User } | null>(null);
+  const [userForm, setUserForm] = useState({ firstName: '', lastName: '', email: '', password: '', role: 'STAFF' as string });
+  const [userSaving, setUserSaving] = useState(false);
   const [pwdModal, setPwdModal] = useState<User | null>(null);
   const [pwdValue, setPwdValue] = useState('');
   const [pwdSaving, setPwdSaving] = useState(false);
@@ -953,6 +966,30 @@ export default function AdminPage() {
     }
   }
 
+  async function saveUser() {
+    setUserSaving(true);
+    try {
+      if (userModal?.mode === 'create') {
+        await api.post('/users', userForm);
+        flash(true, 'Usuario creado');
+      } else if (userModal?.mode === 'edit' && userModal.user) {
+        await api.patch(`/users/${userModal.user.id}`, {
+          firstName: userForm.firstName,
+          lastName: userForm.lastName,
+          email: userForm.email,
+          role: userForm.role,
+        });
+        flash(true, 'Usuario actualizado');
+      }
+      setUserModal(null);
+      loadUsers();
+    } catch (e: any) {
+      flash(false, e.response?.data?.message ?? 'Error al guardar');
+    } finally {
+      setUserSaving(false);
+    }
+  }
+
   async function saveUserRole(id: string) {
     setSaving(true);
     try {
@@ -1116,7 +1153,13 @@ export default function AdminPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 w-72"
               />
-              <span className="text-xs text-gray-400">{filtered.length} usuarios</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400">{filtered.length} usuarios</span>
+                <button onClick={() => { setUserModal({ mode: 'create' }); setUserForm({ firstName: '', lastName: '', email: '', password: '', role: 'STAFF' }); }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-500 text-white hover:bg-green-600 transition-colors">
+                  + Nuevo usuario
+                </button>
+              </div>
             </div>
 
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -1203,6 +1246,7 @@ export default function AdminPage() {
                               user={u}
                               currentUserId={user?.id ?? ''}
                               onEdit={() => { setEditingId(u.id); setEditRole(u.role); }}
+                              onEditUser={() => { setUserModal({ mode: 'edit', user: u }); setUserForm({ firstName: u.firstName, lastName: u.lastName, email: u.email, password: '', role: u.role }); }}
                               onResetPassword={() => { setPwdModal(u); setPwdValue(''); setPwdMsg(null); }}
                               onImpersonate={() => handleImpersonate(u)}
                               onAssignRole={() => setAssignModal(u)}
@@ -1732,6 +1776,55 @@ export default function AdminPage() {
           <div className="flex justify-end">
             <button onClick={() => setAssignModal(null)} className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
               Cerrar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Create/Edit User modal ── */}
+      {userModal && (
+        <Modal title={userModal.mode === 'create' ? 'Nuevo usuario' : `Editar — ${userModal.user?.firstName} ${userModal.user?.lastName}`} onClose={() => setUserModal(null)}>
+          <div className="space-y-3 mb-4">
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Nombre</label>
+                <input type="text" value={userForm.firstName} onChange={e => setUserForm(f => ({ ...f, firstName: e.target.value }))} placeholder="Nombre"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Apellido</label>
+                <input type="text" value={userForm.lastName} onChange={e => setUserForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Apellido"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Email</label>
+              <input type="email" value={userForm.email} onChange={e => setUserForm(f => ({ ...f, email: e.target.value }))} placeholder="email@empresa.com"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+            {userModal.mode === 'create' && (
+              <div>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Contraseña</label>
+                <input type="password" value={userForm.password} onChange={e => setUserForm(f => ({ ...f, password: e.target.value }))} placeholder="Minimo 6 caracteres"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Rol</label>
+              <select value={userForm.role} onChange={e => setUserForm(f => ({ ...f, role: e.target.value }))}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                <option value="STAFF">STAFF</option>
+                <option value="ADMIN">ADMIN</option>
+                <option value="PROFESSOR">PROFESSOR</option>
+                <option value="STUDENT">STUDENT</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setUserModal(null)} className="px-4 py-2 rounded-xl text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Cancelar</button>
+            <button onClick={saveUser} disabled={userSaving || !userForm.firstName || !userForm.email || (userModal.mode === 'create' && userForm.password.length < 6)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-green-500 text-white hover:bg-green-600 disabled:opacity-50">
+              {userSaving ? 'Guardando...' : userModal.mode === 'create' ? 'Crear usuario' : 'Guardar cambios'}
             </button>
           </div>
         </Modal>

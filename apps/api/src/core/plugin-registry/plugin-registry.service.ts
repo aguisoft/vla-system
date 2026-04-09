@@ -40,7 +40,7 @@ export class PluginRegistryService implements OnModuleInit {
    * Called by each plugin module during `onModuleInit()`.
    * Upserts the plugin record in the DB and invokes lifecycle callbacks.
    */
-  async register(plugin: VLAPlugin & { hasFrontend?: boolean; unmetRequirements?: string[]; settingsSchema?: any }): Promise<void> {
+  async register(plugin: VLAPlugin & { hasFrontend?: boolean; unmetRequirements?: string[]; settingsSchema?: any; accessPermissions?: string[] }): Promise<void> {
     this.plugins.set(plugin.name, plugin);
     this.frontendFlags.set(plugin.name, plugin.hasFrontend ?? false);
     this.accessPermissionsMap.set(plugin.name, (plugin as any).accessPermissions ?? []);

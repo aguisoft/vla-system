@@ -109,11 +109,35 @@ export class PluginContextFactory {
 
       query: async <T = any>(sql: string, params?: any[]): Promise<T[]> => {
         const schema = `plugin_${pluginName.replace(/-/g, '_')}`;
-        const fullSql = `SET search_path TO "${schema}", public; ${sql}`;
-        const result = params?.length
-          ? await prisma.$queryRawUnsafe(fullSql, ...params)
-          : await prisma.$queryRawUnsafe(fullSql);
-        await prisma.$executeRawUnsafe('SET search_path TO public');
+
+        // Inline params to avoid Prisma type cast issues with UUIDs
+        let finalSql = sql;
+        if (params?.length) {
+          finalSql = sql.replace(/\$(\d+)/g, (_, n) => {
+            const val = params[Number(n) - 1];
+            if (val === null || val === undefined) return 'NULL';
+            if (typeof val === 'number' || typeof val === 'bigint') return String(val);
+            if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+            return `'${String(val).replace(/'/g, "''")}'`;
+          });
+        }
+
+        // Use $transaction to guarantee SET search_path and query run on the SAME connection
+        const isWrite = /^\s*(INSERT|UPDATE|DELETE)/i.test(finalSql);
+        const result = await prisma.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET search_path TO "${schema}", public`);
+          let res: any;
+          if (isWrite && /RETURNING/i.test(finalSql)) {
+            res = await tx.$queryRawUnsafe(finalSql);
+          } else if (isWrite) {
+            await tx.$executeRawUnsafe(finalSql);
+            res = [];
+          } else {
+            res = await tx.$queryRawUnsafe(finalSql);
+          }
+          await tx.$executeRawUnsafe('SET search_path TO public');
+          return res;
+        });
         return result as T[];
       },
 
