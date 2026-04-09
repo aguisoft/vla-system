@@ -97,17 +97,18 @@ export class AuthService {
       include: { customRole: true },
     });
 
-    let base: string[];
-    if (userRecord?.customRole) {
-      base = (userRecord.customRole.permissions as string[]) ?? [];
-    } else {
-      // Look for DB-stored system role so admins can edit built-in permissions at runtime.
-      // Falls back to the hardcoded constant if the system role hasn't been seeded yet.
-      const systemRole = await this.prisma.customRole.findUnique({ where: { name: role } });
-      base = systemRole
-        ? (systemRole.permissions as string[]) ?? []
-        : (BUILTIN_ROLE_PERMISSIONS[role] ?? []) as string[];
-    }
+    // Start with the system role permissions (STAFF, ADMIN, etc.)
+    const systemRole = await this.prisma.customRole.findUnique({ where: { name: role } });
+    const systemPerms: string[] = systemRole
+      ? (systemRole.permissions as string[]) ?? []
+      : (BUILTIN_ROLE_PERMISSIONS[role] ?? []) as string[];
+
+    // If user has a custom role, MERGE its permissions on top of the system role
+    const customPerms: string[] = userRecord?.customRole
+      ? (userRecord.customRole.permissions as string[]) ?? []
+      : [];
+
+    const base = [...new Set([...systemPerms, ...customPerms])];
 
     // Allow plugins to inject additional permissions at login time.
     // The filter receives { permissions, userId, role } so plugins have full context.
