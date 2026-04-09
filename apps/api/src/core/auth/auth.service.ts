@@ -34,9 +34,10 @@ export class AuthService {
     firstName: string;
     lastName: string;
   }) {
-    let isNew = false;
+    // 1. Try to find by googleId
     let user = await this.prisma.user.findUnique({ where: { googleId: profile.googleId } });
 
+    // 2. Try to find by email (link Google account to existing user)
     if (!user) {
       user = await this.prisma.user.findUnique({ where: { email: profile.email } });
       if (user) {
@@ -44,24 +45,19 @@ export class AuthService {
           where: { id: user.id },
           data: { googleId: profile.googleId },
         });
-      } else {
-        user = await this.prisma.user.create({
-          data: {
-            email: profile.email,
-            googleId: profile.googleId,
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            role: 'STAFF',
-            isActive: true,
-          },
-        });
-        isNew = true;
       }
     }
 
-    if (!user.isActive) throw new UnauthorizedException('Account is inactive');
+    // 3. User not found — DENY access (no auto-registration)
+    if (!user) {
+      throw new UnauthorizedException(
+        'No tienes una cuenta en el sistema. Contacta al administrador.',
+      );
+    }
 
-    await this.hooks.doAction(CORE_HOOKS.AUTH_GOOGLE_LOGIN, { user, isNew });
+    if (!user.isActive) throw new UnauthorizedException('Tu cuenta está desactivada');
+
+    await this.hooks.doAction(CORE_HOOKS.AUTH_GOOGLE_LOGIN, { user, isNew: false });
 
     return user;
   }
