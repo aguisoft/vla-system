@@ -19,9 +19,11 @@ interface FullPlugin {
   adminOnly: boolean;
   isActive: boolean;
   installedAt: string;
+  hasFrontend?: boolean;
+  hasSettings?: boolean;
 }
 
-type Tab = 'users' | 'roles' | 'plugins' | 'system';
+type Tab = 'users' | 'roles' | 'plugins' | 'hooks' | 'integrations' | 'system';
 
 interface CustomRole {
   id: string;
@@ -83,6 +85,396 @@ function formatTime(iso: string): string {
     return iso;
   }
 }
+
+// ── Hooks Catalog Panel ──────────────────────────────────────────────────────
+
+interface HookInfo {
+  hookName: string;
+  pluginName: string;
+  type: 'action' | 'filter';
+  description?: string;
+  payload?: Record<string, string>;
+  listeners: { pluginName: string; priority: number }[];
+}
+
+function HooksCatalogPanel() {
+  const [hooks, setHooks] = useState<HookInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    api.get('/plugins/hooks').then(r => setHooks(r.data)).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex justify-center py-12"><div className="w-6 h-6 rounded-full border-[3px] border-green-500 border-t-transparent animate-spin" /></div>;
+
+  // Group by plugin
+  const byPlugin = new Map<string, HookInfo[]>();
+  for (const h of hooks) {
+    const key = h.pluginName;
+    if (!byPlugin.has(key)) byPlugin.set(key, []);
+    byPlugin.get(key)!.push(h);
+  }
+
+  const toggle = (name: string) => setExpanded(prev => {
+    const next = new Set(prev);
+    next.has(name) ? next.delete(name) : next.add(name);
+    return next;
+  });
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-4">
+      <div className="flex items-center gap-2 mb-2">
+        <p className="text-xs text-gray-400">{hooks.length} hooks registrados en {byPlugin.size} módulos</p>
+      </div>
+
+      {Array.from(byPlugin.entries()).map(([plugin, pluginHooks]) => (
+        <div key={plugin} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800/50 flex items-center gap-2">
+            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider ${plugin === 'core' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600'}`}>
+              {plugin}
+            </span>
+            <span className="text-[10px] text-gray-400">{pluginHooks.length} hooks</span>
+          </div>
+
+          {pluginHooks.map(h => (
+            <div key={h.hookName} className="border-t border-gray-50 dark:border-gray-800">
+              <button
+                onClick={() => toggle(h.hookName)}
+                className="w-full px-4 py-2.5 flex items-center gap-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+              >
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${h.type === 'filter' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600' : 'bg-green-100 dark:bg-green-900/30 text-green-600'}`}>
+                  {h.type}
+                </span>
+                <code className="text-xs font-mono text-gray-800 dark:text-gray-200 flex-1">{h.hookName}</code>
+                {h.listeners.length > 0 && (
+                  <span className="text-[10px] text-gray-400">{h.listeners.length} listener{h.listeners.length !== 1 ? 's' : ''}</span>
+                )}
+                <svg className={`w-3.5 h-3.5 text-gray-300 transition-transform ${expanded.has(h.hookName) ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {expanded.has(h.hookName) && (
+                <div className="px-4 pb-3 space-y-2">
+                  {h.description && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{h.description}</p>
+                  )}
+                  {h.payload && Object.keys(h.payload).length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Payload</p>
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-2.5 space-y-1">
+                        {Object.entries(h.payload).map(([k, v]) => (
+                          <div key={k} className="flex gap-2 text-[11px]">
+                            <code className="font-mono text-indigo-600 dark:text-indigo-400">{k}</code>
+                            <span className="text-gray-400">{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {h.listeners.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Listeners</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {h.listeners.map((l, i) => (
+                          <span key={i} className="px-2 py-0.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-[10px] text-gray-600 dark:text-gray-400 font-medium">
+                            {l.pluginName} <span className="text-gray-300">p:{l.priority}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {!h.description && !h.payload && h.listeners.length === 0 && (
+                    <p className="text-[10px] text-gray-300 italic">Sin documentación</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Plugin Settings Panel (auto-generated from schema) ───────────────────────
+
+function PluginSettingsPanel({ pluginName }: { pluginName: string }) {
+  const [schema, setSchema] = useState<any>(null);
+  const [config, setConfig] = useState<Record<string, any>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      api.get(`/plugins/${pluginName}/settings-schema`).then(r => r.data),
+      api.get('/plugins/all').then(r => {
+        const p = (r.data as any[]).find((x: any) => x.name === pluginName);
+        return p?.config ?? {};
+      }),
+    ]).then(([s, c]) => {
+      setSchema(s);
+      setConfig(c);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [pluginName]);
+
+  if (!loaded) return <div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 rounded-full border-[3px] border-green-500 border-t-transparent animate-spin" /></div>;
+
+  const fields: any[] = [
+    ...(schema?.fields ?? []),
+    ...(schema?.sections ?? []).flatMap((s: any) => s.fields ?? []),
+  ];
+
+  // No schema — fallback to iframe
+  if (fields.length === 0) {
+    return (
+      <iframe
+        key={pluginName}
+        src={`/api/v1/p/${pluginName}/ui/?config=true`}
+        className="flex-1 w-full border-0"
+        title={`${pluginName} config`}
+        allow="same-origin"
+      />
+    );
+  }
+
+  const handleSave = async () => {
+    setSaving(true); setError(''); setSaved(false);
+    try {
+      await api.patch(`/plugins/${pluginName}/config`, { config });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? e.message ?? 'Error');
+    } finally { setSaving(false); }
+  };
+
+  const sections = schema?.sections?.length
+    ? schema.sections
+    : [{ title: 'Configuración', fields }];
+
+  return (
+    <div className="flex-1 overflow-auto p-5 space-y-5">
+      {sections.map((section: any, si: number) => (
+        <div key={si} className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-4 space-y-3">
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{section.title}</p>
+          {section.description && <p className="text-xs text-gray-400 -mt-1">{section.description}</p>}
+          {(section.fields ?? []).map((field: any) => (
+            <div key={field.key}>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
+                {field.label}{field.required && <span className="text-red-400 ml-0.5">*</span>}
+              </label>
+              {field.type === 'boolean' ? (
+                <button
+                  onClick={() => setConfig(c => ({ ...c, [field.key]: !c[field.key] }))}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${config[field.key] ? 'bg-green-500' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${config[field.key] ? 'left-5' : 'left-0.5'}`} />
+                </button>
+              ) : field.type === 'select' ? (
+                <select
+                  value={config[field.key] ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, [field.key]: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">Seleccionar...</option>
+                  {(field.options ?? []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : field.type === 'text' ? (
+                <textarea
+                  value={config[field.key] ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder ?? ''}
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              ) : field.type === 'number' ? (
+                <input
+                  type="number"
+                  value={config[field.key] ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, [field.key]: e.target.value ? Number(e.target.value) : '' }))}
+                  placeholder={field.placeholder ?? ''}
+                  min={field.min} max={field.max}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              ) : (
+                <input
+                  type={field.type === 'secret' ? 'password' : field.type === 'url' ? 'url' : 'text'}
+                  value={config[field.key] ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder ?? ''}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              )}
+              {field.description && <p className="text-[10px] text-gray-400 mt-1">{field.description}</p>}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {error && <div className="rounded-xl bg-red-50 dark:bg-red-900/10 text-red-600 text-xs p-3">{error}</div>}
+      {saved && <div className="rounded-xl bg-green-50 dark:bg-green-900/10 text-green-600 text-xs p-3">Configuración guardada</div>}
+
+      <button onClick={handleSave} disabled={saving}
+        className="w-full py-2.5 rounded-xl text-xs font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors">
+        {saving ? 'Guardando...' : 'Guardar configuración'}
+      </button>
+    </div>
+  );
+}
+
+// ── Bitrix Integration Panel ─────────────────────────────────────────────────
+
+function BitrixIntegrationPanel() {
+  const [status, setStatus] = useState<{ configured: boolean; domain?: string; tokenValid?: boolean; expiresAt?: number } | null>(null);
+  const [form, setForm] = useState({ clientId: '', clientSecret: '', domain: '' });
+  const [saving, setSaving] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; user?: string; error?: string } | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const loadStatus = async () => {
+    try { const r = await api.get(`/admin/integrations/bitrix/status?_t=${Date.now()}`); setStatus(r.data); } catch { /* ignore */ }
+  };
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const handleConfigure = async () => {
+    if (!form.clientId || !form.clientSecret || !form.domain) return;
+    setSaving(true);
+    try {
+      await api.post('/admin/integrations/bitrix/configure', form);
+      setForm({ clientId: '', clientSecret: '', domain: '' });
+      await loadStatus();
+    } finally { setSaving(false); }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try { const r = await api.post('/admin/integrations/bitrix/test'); setTestResult(r.data); }
+    catch (e: any) { setTestResult({ ok: false, error: e.message }); }
+    finally { setTesting(false); }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Desconectar Bitrix24? Los plugins que lo requieran dejarán de funcionar.')) return;
+    await api.delete('/admin/integrations/bitrix/disconnect');
+    setStatus(null);
+    setTestResult(null);
+  };
+
+  const handleAuthorize = () => {
+    window.location.href = '/api/v1/admin/integrations/bitrix/authorize';
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-4">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-bold text-gray-900 dark:text-white">Bitrix24 OAuth2</h3>
+            <p className="text-xs text-gray-400">Integración centralizada para todos los plugins</p>
+          </div>
+          {status?.configured && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              Conectado
+            </span>
+          )}
+        </div>
+
+        {status?.configured ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">Dominio</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{status.domain}</p>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">Token</p>
+                <p className={`text-sm font-medium ${status.tokenValid ? 'text-green-600' : 'text-red-500'}`}>
+                  {status.tokenValid ? 'Válido' : 'Expirado'}
+                </p>
+                {status.expiresAt && (
+                  <p className="text-[10px] text-gray-400">Expira: {new Date(status.expiresAt).toLocaleString()}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={handleTest} disabled={testing}
+                className="flex-1 py-2 rounded-xl text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 disabled:opacity-50 transition-colors">
+                {testing ? 'Probando...' : 'Probar conexión'}
+              </button>
+              <button onClick={handleAuthorize}
+                className="flex-1 py-2 rounded-xl text-xs font-semibold bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-colors">
+                Re-autorizar
+              </button>
+              <button onClick={handleDisconnect}
+                className="py-2 px-4 rounded-xl text-xs font-semibold bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 transition-colors">
+                Desconectar
+              </button>
+            </div>
+
+            {testResult && (
+              <div className={`rounded-xl p-3 text-xs ${testResult.ok ? 'bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400'}`}>
+                {testResult.ok ? `Conectado como: ${testResult.user}` : `Error: ${testResult.error}`}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Configura una aplicación de servidor Bitrix24 con permisos de <code className="font-mono text-[11px] bg-gray-100 dark:bg-gray-800 px-1 rounded">timeman</code>, <code className="font-mono text-[11px] bg-gray-100 dark:bg-gray-800 px-1 rounded">crm</code>, <code className="font-mono text-[11px] bg-gray-100 dark:bg-gray-800 px-1 rounded">user</code>.
+            </p>
+            <div className="space-y-2">
+              <input type="text" placeholder="Client ID" value={form.clientId}
+                onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input type="password" placeholder="Client Secret" value={form.clientSecret}
+                onChange={e => setForm(f => ({ ...f, clientSecret: e.target.value }))}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input type="text" placeholder="Dominio (ej: empresa.bitrix24.com)" value={form.domain}
+                onChange={e => setForm(f => ({ ...f, domain: e.target.value }))}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleConfigure} disabled={saving || !form.clientId || !form.clientSecret || !form.domain}
+                className="flex-1 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                {saving ? 'Guardando...' : 'Guardar credenciales'}
+              </button>
+            </div>
+            {status !== null && !status.configured && (
+              <button onClick={handleAuthorize}
+                className="w-full py-2 rounded-xl text-xs font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors">
+                Autorizar en Bitrix24
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-2xl p-4">
+        <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">Crear una aplicación de servidor en Bitrix24</p>
+        <ol className="text-xs text-amber-600 dark:text-amber-500 space-y-1 list-decimal list-inside">
+          <li>Ir a Bitrix24 &rarr; Aplicaciones &rarr; Developer resources &rarr; Otra &rarr; Aplicación de servidor</li>
+          <li>Conceder permisos: <strong>timeman</strong>, <strong>crm</strong>, <strong>user</strong>, <strong>user_brief</strong></li>
+          <li>URL de redirect: <code className="font-mono text-[11px]">{typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/admin/integrations/bitrix/callback</code></li>
+          <li>Copiar <strong>client_id</strong> y <strong>client_secret</strong> aquí</li>
+          <li>Presionar &quot;Guardar credenciales&quot; y luego &quot;Autorizar en Bitrix24&quot;</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+// ── Log Viewer ────────────────────────────────────────────────────────────────
 
 function LogViewer() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -308,7 +700,14 @@ export default function AdminPage() {
   const router = useRouter();
   const { user, setUser, stopImpersonation } = useAuthStore();
   const plugins = usePlugins();
-  const [tab, setTab] = useState<Tab>('users');
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get('tab');
+      if (t && ['users', 'roles', 'plugins', 'hooks', 'integrations', 'system'].includes(t)) return t as Tab;
+    }
+    return 'users';
+  });
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -355,6 +754,7 @@ export default function AdminPage() {
   const [togglingPlugin, setTogglingPlugin] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [configPlugin, setConfigPlugin] = useState<FullPlugin | null>(null);
   const [restarting, setRestarting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -364,7 +764,7 @@ export default function AdminPage() {
   }, [user, router]);
 
   useEffect(() => {
-    if (tab === 'users') loadUsers();
+    if (tab === 'users') { loadUsers(); loadRoles(); }
     if (tab === 'roles') loadRoles();
     if (tab === 'plugins') loadAllPlugins();
   }, [tab]);
@@ -626,11 +1026,48 @@ export default function AdminPage() {
     { key: 'users', label: 'Usuarios' },
     { key: 'roles', label: 'Roles' },
     { key: 'plugins', label: 'Módulos' },
+    { key: 'hooks', label: 'Hooks' },
+    { key: 'integrations', label: 'Integraciones' },
     { key: 'system', label: 'Sistema' },
   ];
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-gray-50 dark:bg-gray-950">
+
+      {/* Plugin config slide-over */}
+      {configPlugin && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setConfigPlugin(null)}
+          />
+          {/* Panel */}
+          <div className="relative ml-auto w-full max-w-xl h-full bg-white dark:bg-gray-900 shadow-2xl flex flex-col">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-5 py-3.5 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
+              <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-bold text-gray-800 dark:text-white capitalize">{configPlugin.name}</p>
+                <p className="text-[10px] text-gray-400">Configuración del plugin</p>
+              </div>
+              <button
+                onClick={() => setConfigPlugin(null)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {/* Plugin config: auto-generated form or iframe fallback */}
+            <PluginSettingsPanel pluginName={configPlugin.name} />
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {actionMsg && (
@@ -973,6 +1410,36 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Install from URL */}
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
+              <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Instalar desde URL</p>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://example.com/my-plugin.vla.zip"
+                  id="install-url-input"
+                  className="flex-1 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <button
+                  onClick={async () => {
+                    const input = document.getElementById('install-url-input') as HTMLInputElement;
+                    if (!input.value) return;
+                    try {
+                      await api.post('/plugins/install-url', { url: input.value });
+                      setUploadMsg({ ok: true, text: 'Instalando... el servidor reiniciará.' });
+                      setRestarting(true);
+                    } catch (e: any) {
+                      setUploadMsg({ ok: false, text: e.response?.data?.message ?? 'Error' });
+                    }
+                  }}
+                  disabled={uploading || restarting}
+                  className="px-4 py-2 rounded-xl text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 transition-colors"
+                >
+                  Instalar
+                </button>
+              </div>
+            </div>
+
             {loadingPlugins ? (
               <div className="flex justify-center py-10">
                 <div className="w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
@@ -1001,11 +1468,11 @@ export default function AdminPage() {
                       p.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400')}>
                       {p.isActive ? 'Activo' : 'Inactivo'}
                     </span>
-                    {p.isActive && p.route && (
+                    {p.isActive && (p.hasFrontend || p.hasSettings) && (
                       <button
-                        onClick={() => router.push(p.route!)}
+                        onClick={() => setConfigPlugin(p)}
                         title="Configurar plugin"
-                        className="p-1.5 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        className="p-1.5 rounded-xl text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -1013,6 +1480,26 @@ export default function AdminPage() {
                         </svg>
                       </button>
                     )}
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Rollback "${p.name}" a la versión anterior?`)) return;
+                        try {
+                          const r = await api.post(`/plugins/${p.name}/rollback`);
+                          if ((r.data as any).ok) {
+                            setUploadMsg({ ok: true, text: `Rollback a v${(r.data as any).restoredVersion}. Reiniciando...` });
+                            setRestarting(true);
+                          } else {
+                            setUploadMsg({ ok: false, text: (r.data as any).error ?? 'No hay versión anterior' });
+                          }
+                        } catch (e: any) { setUploadMsg({ ok: false, text: e.response?.data?.message ?? 'Error' }); }
+                      }}
+                      title="Rollback a versión anterior"
+                      className="p-1.5 rounded-xl text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                    </button>
                     <button
                       onClick={() => togglePlugin(p)}
                       disabled={togglingPlugin === p.name}
@@ -1032,6 +1519,12 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── HOOKS TAB ── */}
+        {tab === 'hooks' && <HooksCatalogPanel />}
+
+        {/* ── INTEGRATIONS TAB ── */}
+        {tab === 'integrations' && <BitrixIntegrationPanel />}
+
         {/* ── SYSTEM TAB ── */}
         {tab === 'system' && (
           <div className="max-w-3xl mx-auto space-y-4">
@@ -1041,7 +1534,7 @@ export default function AdminPage() {
                 { label: 'Módulos activos', value: String(plugins.length) },
                 { label: 'Total usuarios', value: String(users.length || '—') },
                 { label: 'Usuarios activos', value: String(users.filter((u) => u.isActive).length || '—') },
-                { label: 'Integración Bitrix24', value: 'Conectado' },
+                { label: 'Integración Bitrix24', value: 'Ver pestaña Integraciones' },
                 { label: 'WebSocket', value: 'Socket.IO' },
               ].map((item) => (
                 <div key={item.label} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4">

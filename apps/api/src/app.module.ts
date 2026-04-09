@@ -16,6 +16,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { RolesModule } from './core/roles/roles.module';
 import { PermissionsModule } from './core/permissions/permissions.module';
 import { LogBufferModule } from './core/log-buffer/log-buffer.module';
+import { BitrixModule } from './core/integrations/bitrix/bitrix.module';
 
 @Module({
   providers: [
@@ -56,6 +57,7 @@ import { LogBufferModule } from './core/log-buffer/log-buffer.module';
     // Core infrastructure — order matters: hooks before registry, registry before plugins
     PrismaModule,
     RedisModule,
+    BitrixModule,
     HookModule,
     AuthModule,
     UsersModule,

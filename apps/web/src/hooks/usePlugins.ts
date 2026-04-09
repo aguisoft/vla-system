@@ -7,11 +7,13 @@ export interface PluginRegistration {
   name: string;
   version: string;
   description: string;
-  route: string;
-  icon: string;
+  route?: string;
+  icon?: string;
   adminOnly: boolean;
   isActive: boolean;
   hasFrontend?: boolean;
+  accessPermissions: string[];
+  unmetRequirements?: string[];
 }
 
 export function usePlugins() {

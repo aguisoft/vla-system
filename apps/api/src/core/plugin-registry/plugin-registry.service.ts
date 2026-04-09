@@ -14,6 +14,15 @@ export class PluginRegistryService implements OnModuleInit {
   /** In-memory map of which plugins have a bundled frontend */
   private readonly frontendFlags = new Map<string, boolean>();
 
+  /** In-memory map of access permissions declared in each plugin's manifest */
+  private readonly accessPermissionsMap = new Map<string, string[]>();
+
+  /** In-memory map of unmet requirements per plugin */
+  private readonly unmetRequirementsMap = new Map<string, string[]>();
+
+  /** In-memory map of declarative settings schemas per plugin */
+  private readonly settingsSchemas = new Map<string, any>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly hooks: HookService,
@@ -31,9 +40,16 @@ export class PluginRegistryService implements OnModuleInit {
    * Called by each plugin module during `onModuleInit()`.
    * Upserts the plugin record in the DB and invokes lifecycle callbacks.
    */
-  async register(plugin: VLAPlugin & { hasFrontend?: boolean }): Promise<void> {
+  async register(plugin: VLAPlugin & { hasFrontend?: boolean; unmetRequirements?: string[]; settingsSchema?: any }): Promise<void> {
     this.plugins.set(plugin.name, plugin);
     this.frontendFlags.set(plugin.name, plugin.hasFrontend ?? false);
+    this.accessPermissionsMap.set(plugin.name, (plugin as any).accessPermissions ?? []);
+    if (plugin.settingsSchema) this.settingsSchemas.set(plugin.name, plugin.settingsSchema);
+    if (plugin.unmetRequirements?.length) {
+      this.unmetRequirementsMap.set(plugin.name, plugin.unmetRequirements);
+    } else {
+      this.unmetRequirementsMap.delete(plugin.name);
+    }
 
     const existing = await this.prisma.plugin.findUnique({
       where: { name: plugin.name },
@@ -118,12 +134,53 @@ export class PluginRegistryService implements OnModuleInit {
   }
 
   async updateConfig(name: string, config: Record<string, unknown>): Promise<PluginRegistration> {
+    // Validate against schema if available
+    const schema = this.settingsSchemas.get(name);
+    if (schema) {
+      const errors = this.validateConfig(schema, config);
+      if (errors.length > 0) {
+        throw new Error(`Config validation failed: ${errors.join('; ')}`);
+      }
+    }
     const record = await this.prisma.plugin.update({
       where: { name },
-      // Prisma InputJsonValue requires a cast for generic objects
       data: { config: config as any },
     });
     return this.toRegistration(record);
+  }
+
+  getSettingsSchema(name: string): any | null {
+    return this.settingsSchemas.get(name) ?? null;
+  }
+
+  private validateConfig(schema: any, config: Record<string, unknown>): string[] {
+    const errors: string[] = [];
+    const fields: any[] = [
+      ...(schema.fields ?? []),
+      ...(schema.sections ?? []).flatMap((s: any) => s.fields ?? []),
+    ];
+    for (const field of fields) {
+      const val = config[field.key];
+      if (field.required && (val === undefined || val === null || val === '')) {
+        errors.push(`${field.label} es requerido`);
+        continue;
+      }
+      if (val === undefined || val === null) continue;
+      if (field.type === 'number' && typeof val !== 'number') {
+        errors.push(`${field.label} debe ser un número`);
+      }
+      if (field.type === 'boolean' && typeof val !== 'boolean') {
+        errors.push(`${field.label} debe ser verdadero/falso`);
+      }
+      if (field.type === 'url' && typeof val === 'string' && !val.startsWith('http')) {
+        errors.push(`${field.label} debe ser una URL válida`);
+      }
+      if (field.type === 'select' && field.options) {
+        const valid = field.options.map((o: any) => o.value);
+        if (!valid.includes(val)) errors.push(`${field.label}: valor no válido`);
+      }
+    }
+    return errors;
   }
 
   // ─── Queries ─────────────────────────────────────────────────────────────
@@ -171,6 +228,9 @@ export class PluginRegistryService implements OnModuleInit {
       adminOnly: record.adminOnly,
       isActive: record.isActive,
       hasFrontend: this.frontendFlags.get(record.name) ?? false,
+      accessPermissions: this.accessPermissionsMap.get(record.name) ?? [],
+      unmetRequirements: this.unmetRequirementsMap.get(record.name) ?? [],
+      hasSettings: this.settingsSchemas.has(record.name),
       config: (record.config as Record<string, unknown>) ?? null,
       installedAt: record.installedAt,
       updatedAt: record.updatedAt,

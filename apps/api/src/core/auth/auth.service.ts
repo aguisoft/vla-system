@@ -82,7 +82,7 @@ export class AuthService {
       impersonatedBy: adminId,
     };
     const token = this.jwtService.sign(payload, { expiresIn: '2h' });
-    return { token, user: { id: target.id, email: target.email, firstName: target.firstName, lastName: target.lastName, role: target.role } };
+    return { token, user: { id: target.id, email: target.email, firstName: target.firstName, lastName: target.lastName, role: target.role, permissions } };
   }
 
   async stopImpersonation(adminId: string) {
@@ -92,7 +92,7 @@ export class AuthService {
     const permissions = await this.resolvePermissions(admin.id, admin.role);
     const payload: JwtPayload = { sub: admin.id, email: admin.email, role: admin.role as any, permissions };
     const token = this.jwtService.sign(payload);
-    return { token, user: { id: admin.id, email: admin.email, firstName: admin.firstName, lastName: admin.lastName, role: admin.role } };
+    return { token, user: { id: admin.id, email: admin.email, firstName: admin.firstName, lastName: admin.lastName, role: admin.role, permissions } };
   }
 
   private async resolvePermissions(userId: string, role: string): Promise<string[]> {
@@ -105,7 +105,12 @@ export class AuthService {
     if (userRecord?.customRole) {
       base = (userRecord.customRole.permissions as string[]) ?? [];
     } else {
-      base = (BUILTIN_ROLE_PERMISSIONS[role] ?? []) as string[];
+      // Look for DB-stored system role so admins can edit built-in permissions at runtime.
+      // Falls back to the hardcoded constant if the system role hasn't been seeded yet.
+      const systemRole = await this.prisma.customRole.findUnique({ where: { name: role } });
+      base = systemRole
+        ? (systemRole.permissions as string[]) ?? []
+        : (BUILTIN_ROLE_PERMISSIONS[role] ?? []) as string[];
     }
 
     // Allow plugins to inject additional permissions at login time.
@@ -142,6 +147,7 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        permissions,
       },
     };
   }

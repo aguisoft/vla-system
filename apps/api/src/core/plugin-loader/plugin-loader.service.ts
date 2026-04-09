@@ -5,15 +5,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { HttpAdapterHost } from '@nestjs/core';
 import type { DiscoveredPlugin } from './plugin-discovery';
+import type { PluginManifest, CoreIntegration } from '@vla/plugin-sdk';
 import { DISCOVERED_PLUGINS_TOKEN } from './plugin-loader.constants';
 import { PluginContextFactory } from './plugin-context.factory';
 import { PluginRegistryService } from '../plugin-registry/plugin-registry.service';
+import { BitrixService } from '../integrations/bitrix/bitrix.service';
+import { PluginMigrationService } from './plugin-migration.service';
 
-/**
- * Receives the list of discovered plugins (injected via DISCOVERED_PLUGINS_TOKEN),
- * builds their PluginContext, calls register(), and mounts their routers
- * on /api/v1/p/:pluginName/.
- */
 @Injectable()
 export class PluginLoaderService implements OnModuleInit {
   private readonly logger = new Logger(PluginLoaderService.name);
@@ -23,28 +21,46 @@ export class PluginLoaderService implements OnModuleInit {
     private readonly contextFactory: PluginContextFactory,
     private readonly registry: PluginRegistryService,
     private readonly adapterHost: HttpAdapterHost,
+    private readonly bitrixService: BitrixService,
+    private readonly migrationService: PluginMigrationService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     if (this.discovered.length === 0) return;
 
-    // Grab the underlying Express app so we can mount sub-routers
     const httpAdapter = this.adapterHost.httpAdapter;
     const expressApp = httpAdapter.getInstance();
 
     for (const { manifest, definition, pluginDir } of this.discovered) {
       try {
-        const pluginRouter = Router();
-        const ctx = this.contextFactory.build(manifest, pluginRouter);
-
-        // Call the plugin's register() — it wires its routes and hooks here
-        await definition.register(ctx);
-
-        // Check if plugin ships a frontend bundle (ui/ folder inside its dir)
         const uiDir = path.join(pluginDir, 'ui');
         const hasFrontend = fs.existsSync(uiDir);
 
-        // Upsert the plugin record in the DB and run install/activate lifecycle
+        // Check integration requirements declared in plugin.json
+        const unmet = this.checkRequirements(manifest);
+        if (unmet.length > 0) {
+          this.logger.warn(
+            `Plugin "${manifest.name}" has unmet requirements: ${unmet.join(', ')} — loaded in degraded mode`,
+          );
+          await this.registry.register({
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description,
+            route: manifest.route,
+            icon: manifest.icon,
+            adminOnly: manifest.adminOnly,
+            hasFrontend,
+            settingsSchema: manifest.settings,
+            unmetRequirements: unmet,
+          });
+          continue; // Skip register() — plugin cannot function without its requirements
+        }
+
+        const pluginRouter = Router();
+        const ctx = this.contextFactory.build(manifest, pluginRouter);
+
+        await definition.register(ctx);
+
         await this.registry.register({
           name: manifest.name,
           version: manifest.version,
@@ -53,19 +69,24 @@ export class PluginLoaderService implements OnModuleInit {
           icon: manifest.icon,
           adminOnly: manifest.adminOnly,
           hasFrontend,
+          settingsSchema: manifest.settings,
           onInstall: definition.onInstall?.bind(definition),
-          onActivate: undefined, // external plugins activate via register()
+          onActivate: undefined,
           onDeactivate: definition.onDeactivate?.bind(definition),
         });
 
-        // Hydrate config into ctx.plugin.config after DB record exists
         await this.contextFactory.hydrateConfig(ctx);
 
-        // Mount plugin router at /api/v1/p/:pluginName/
+        // Run pending database migrations for this plugin
+        try {
+          await this.migrationService.runPending(manifest.name, pluginDir);
+        } catch (err) {
+          this.logger.error(`Plugin "${manifest.name}" migration failed — plugin may not function correctly`);
+        }
+
         const mountPath = `/api/v1/p/${manifest.name}`;
         expressApp.use(mountPath, pluginRouter);
 
-        // Serve bundled frontend at /api/v1/p/:pluginName/ui/ if it exists
         if (hasFrontend) {
           expressApp.use(`${mountPath}/ui`, express.static(uiDir));
           this.logger.log(`Plugin frontend served at ${mountPath}/ui: ${manifest.name}`);
@@ -79,5 +100,19 @@ export class PluginLoaderService implements OnModuleInit {
         );
       }
     }
+  }
+
+  private checkRequirements(manifest: PluginManifest): string[] {
+    const unmet: string[] = [];
+    for (const req of (manifest.requires ?? []) as CoreIntegration[]) {
+      switch (req) {
+        case 'bitrix':
+          if (!this.bitrixService.isConfigured()) unmet.push('bitrix');
+          break;
+        default:
+          unmet.push(req);
+      }
+    }
+    return unmet;
   }
 }

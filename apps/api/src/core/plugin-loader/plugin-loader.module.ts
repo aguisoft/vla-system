@@ -4,6 +4,7 @@ import { discoverPlugins, DiscoveredPlugin } from './plugin-discovery';
 import { DISCOVERED_PLUGINS_TOKEN } from './plugin-loader.constants';
 import { PluginContextFactory } from './plugin-context.factory';
 import { PluginLoaderService } from './plugin-loader.service';
+import { PluginMigrationService } from './plugin-migration.service';
 
 /**
  * Dynamic module that:
@@ -32,6 +33,7 @@ export class PluginLoaderModule {
           useValue: discovered,
         },
         PluginContextFactory,
+        PluginMigrationService,
         PluginLoaderService,
       ],
       exports: [],

@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HookService } from '../hooks/hook.service';
 import { RedisService } from '../redis/redis.service';
 import { PluginRegistryService } from '../plugin-registry/plugin-registry.service';
+import { BitrixService } from '../integrations/bitrix/bitrix.service';
 
 @Injectable()
 export class PluginContextFactory {
@@ -18,6 +19,7 @@ export class PluginContextFactory {
     private readonly jwtService: JwtService,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly registry: PluginRegistryService,
+    private readonly bitrixService: BitrixService,
   ) {}
 
   /**
@@ -39,7 +41,7 @@ export class PluginContextFactory {
           hooks.registerFilter(hookName, handler, { ...opts, pluginName }),
         doAction: (hookName, payload) => hooks.doAction(hookName, payload),
         applyFilter: (hookName, payload) => hooks.applyFilter(hookName, payload),
-        declareHook: (hookName) => hooks.declareHook(hookName, pluginName),
+        declareHook: (hookName, metadata?) => hooks.declareHook(hookName, pluginName, metadata),
       },
 
       prisma,
@@ -86,7 +88,7 @@ export class PluginContextFactory {
             return res.status(401).json({ message: 'Unauthorized' });
           }
           try {
-            const payload = jwtService.verify(token) as { sub: string; role: string };
+            const payload = jwtService.verify(token) as { sub: string; role: string; permissions: string[] };
             if (role && payload.role !== role) {
               return res.status(403).json({ message: 'Forbidden' });
             }
@@ -95,6 +97,34 @@ export class PluginContextFactory {
           } catch {
             return res.status(401).json({ message: 'Invalid token' });
           }
+        };
+      },
+
+      bitrix: this.bitrixService.isConfigured() ? {
+        isConfigured: () => this.bitrixService.isConfigured(),
+        call: <T>(method: string, params?: Record<string, unknown>) => this.bitrixService.call<T>(method, params),
+        callRaw: <T>(method: string, params?: Record<string, unknown>) => this.bitrixService.callRaw<T>(method, params),
+        callAll: <T>(method: string, params?: Record<string, unknown>) => this.bitrixService.callAll<T>(method, params),
+      } : undefined,
+
+      query: async <T = any>(sql: string, params?: any[]): Promise<T[]> => {
+        const schema = `plugin_${pluginName.replace(/-/g, '_')}`;
+        const fullSql = `SET search_path TO "${schema}", public; ${sql}`;
+        const result = params?.length
+          ? await prisma.$queryRawUnsafe(fullSql, ...params)
+          : await prisma.$queryRawUnsafe(fullSql);
+        await prisma.$executeRawUnsafe('SET search_path TO public');
+        return result as T[];
+      },
+
+      requirePermission: (permission: string) => {
+        return (req: any, res: any, next: any) => {
+          if (req.user?.role === 'ADMIN') return next();
+          const permissions: string[] = req.user?.permissions ?? [];
+          if (!permissions.includes(permission)) {
+            return res.status(403).json({ message: 'Forbidden', required: permission });
+          }
+          next();
         };
       },
 

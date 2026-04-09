@@ -77,6 +77,37 @@ model Plugin {
   @@schema("core")
 }
 
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@schema("core")
+}
+
+model PluginVersion {
+  id          String   @id @default(uuid())
+  pluginName  String
+  version     String
+  backupPath  String
+  installedAt DateTime @default(now())
+
+  @@unique([pluginName, version])
+  @@schema("core")
+}
+
+model PluginMigration {
+  id         String   @id @default(uuid())
+  pluginName String
+  version    String
+  fileName   String
+  checksum   String
+  appliedAt  DateTime @default(now())
+
+  @@unique([pluginName, version])
+  @@schema("core")
+}
+
 // ==================== VIRTUAL_OFFICE SCHEMA ====================
 
 model OfficeLayout {

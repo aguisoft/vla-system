@@ -50,6 +50,12 @@ export interface PluginRegistration {
   adminOnly: boolean;
   isActive: boolean;
   hasFrontend?: boolean;
+  /** Permissions a user needs at least one of to see/access this plugin. Empty = visible to all. */
+  accessPermissions: string[];
+  /** Core integrations that are not configured — plugin is in degraded mode if non-empty */
+  unmetRequirements?: string[];
+  /** Whether this plugin has a declarative settings schema */
+  hasSettings?: boolean;
   config?: Record<string, unknown> | null;
   installedAt: Date;
   updatedAt: Date;

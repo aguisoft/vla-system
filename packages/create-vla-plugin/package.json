@@ -1,0 +1,23 @@
+{
+  "name": "create-vla-plugin",
+  "version": "1.0.0",
+  "description": "CLI para crear plugins VLA System",
+  "bin": {
+    "create-vla-plugin": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "prompts": "^2.4.2",
+    "chalk": "^4.1.2",
+    "fs-extra": "^11.2.0"
+  },
+  "devDependencies": {
+    "@types/prompts": "^2.4.9",
+    "@types/fs-extra": "^11.0.4",
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.2"
+  }
+}

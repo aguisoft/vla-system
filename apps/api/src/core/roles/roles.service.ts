@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BUILTIN_ROLE_PERMISSIONS } from '@vla/shared';
 
 export interface CreateRoleDto {
   name: string;
@@ -15,9 +16,34 @@ export interface UpdateRoleDto {
   color?: string;
 }
 
+const SYSTEM_ROLE_COLORS: Record<string, string> = {
+  ADMIN:     '#ef4444',
+  STAFF:     '#3b82f6',
+  PROFESSOR: '#8b5cf6',
+  STUDENT:   '#10b981',
+};
+
 @Injectable()
-export class RolesService {
+export class RolesService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    // Seed built-in system roles into DB so their permissions can be edited at runtime.
+    // Uses upsert so it never overwrites existing edits.
+    for (const [roleName, perms] of Object.entries(BUILTIN_ROLE_PERMISSIONS)) {
+      await this.prisma.customRole.upsert({
+        where: { name: roleName },
+        create: {
+          name: roleName,
+          description: `Rol del sistema: ${roleName}`,
+          permissions: perms as string[],
+          color: SYSTEM_ROLE_COLORS[roleName] ?? '#6B7280',
+          isSystem: true,
+        },
+        update: {}, // never overwrite — admin edits are preserved
+      });
+    }
+  }
 
   async findAll() {
     return this.prisma.customRole.findMany({
@@ -51,6 +77,10 @@ export class RolesService {
 
   async update(id: string, dto: UpdateRoleDto) {
     const role = await this.findOne(id);
+
+    if (role.isSystem && dto.name && dto.name !== role.name) {
+      throw new ForbiddenException('Cannot rename a system role');
+    }
 
     if (dto.name && dto.name !== role.name) {
       const conflict = await this.prisma.customRole.findUnique({ where: { name: dto.name } });

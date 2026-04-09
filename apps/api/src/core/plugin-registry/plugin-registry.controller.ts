@@ -20,6 +20,9 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { HookService } from '../hooks/hook.service';
 import { PluginRegistryService } from './plugin-registry.service';
 import { PluginUploadService } from '../plugin-loader/plugin-upload.service';
+import { PluginMigrationService } from '../plugin-loader/plugin-migration.service';
+import { PluginVersionService } from '../plugin-loader/plugin-version.service';
+import { PluginDependencyService } from '../plugin-loader/plugin-dependency.service';
 
 class UpdateConfigDto {
   @ApiProperty({ description: 'Arbitrary plugin configuration object' })
@@ -43,6 +46,9 @@ export class PluginRegistryController {
     private readonly registry: PluginRegistryService,
     private readonly hooks: HookService,
     private readonly uploadService: PluginUploadService,
+    private readonly migrations: PluginMigrationService,
+    private readonly versions: PluginVersionService,
+    private readonly dependencies: PluginDependencyService,
   ) {}
 
   @ApiOperation({ summary: 'List all plugins (admin sees all, users see active only)' })
@@ -59,12 +65,20 @@ export class PluginRegistryController {
     return this.registry.getAll();
   }
 
-  @ApiOperation({ summary: 'Get registered hook names (admin only)' })
+  @ApiOperation({ summary: 'Get hook catalog with metadata (admin only)' })
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @Get('hooks')
   getHooks() {
-    return this.hooks.getRegisteredHooks();
+    return this.hooks.getHooksCatalog();
+  }
+
+  @ApiOperation({ summary: 'Get database migrations status for all plugins (admin only)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('migrations')
+  getMigrations() {
+    return this.migrations.getAllStatus();
   }
 
   @ApiOperation({ summary: 'Activate a plugin (admin only)' })
@@ -84,11 +98,21 @@ export class PluginRegistryController {
   @Roles(UserRole.ADMIN)
   @Post(':name/deactivate')
   async deactivate(@Param('name') name: string) {
+    const warnings = this.dependencies.checkDeactivation(name);
     try {
-      return await this.registry.deactivate(name);
+      const result = await this.registry.deactivate(name);
+      return { ...result, warnings };
     } catch {
       throw new NotFoundException(`Plugin "${name}" not found`);
     }
+  }
+
+  @ApiOperation({ summary: 'Get plugin settings schema (admin only)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get(':name/settings-schema')
+  getSettingsSchema(@Param('name') name: string) {
+    return this.registry.getSettingsSchema(name) ?? { fields: [] };
   }
 
   @ApiOperation({ summary: 'Update plugin configuration (admin only)' })
@@ -98,7 +122,10 @@ export class PluginRegistryController {
   async updateConfig(@Param('name') name: string, @Body() dto: UpdateConfigDto) {
     try {
       return await this.registry.updateConfig(name, dto.config);
-    } catch {
+    } catch (e: any) {
+      if (e.message?.startsWith('Config validation')) {
+        throw new NotFoundException(e.message);
+      }
       throw new NotFoundException(`Plugin "${name}" not found`);
     }
   }
@@ -120,5 +147,38 @@ export class PluginRegistryController {
       throw new NotFoundException('No file provided');
     }
     return this.uploadService.install(file.buffer);
+  }
+
+  @ApiOperation({ summary: 'Install plugin from URL (admin only)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('install-url')
+  async installFromUrl(@Body() body: { url: string }) {
+    if (!body.url) throw new NotFoundException('url is required');
+    return this.uploadService.installFromUrl(body.url);
+  }
+
+  @ApiOperation({ summary: 'Get version history for a plugin (admin only)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get(':name/versions')
+  getVersions(@Param('name') name: string) {
+    return this.versions.getHistory(name);
+  }
+
+  @ApiOperation({ summary: 'Rollback plugin to previous version (admin only)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post(':name/rollback')
+  async rollbackPlugin(@Param('name') name: string) {
+    return this.uploadService.rollback(name);
+  }
+
+  @ApiOperation({ summary: 'Check dependencies before deactivation (admin only)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get(':name/dependents')
+  getDependents(@Param('name') name: string) {
+    return this.dependencies.checkDeactivation(name);
   }
 }

@@ -4,10 +4,12 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import AdmZip from 'adm-zip';
 import type { PluginManifest } from '@vla/plugin-sdk';
 import { PLUGINS_DIR, VLA_CORE_VERSION } from './plugin-discovery';
+import { PluginVersionService } from './plugin-version.service';
 
 export interface UploadResult {
   name: string;
   version: string;
+  previousVersion?: string;
   message: string;
   restarting: boolean;
 }
@@ -16,12 +18,11 @@ export interface UploadResult {
 export class PluginUploadService {
   private readonly logger = new Logger(PluginUploadService.name);
 
+  constructor(private readonly versionService: PluginVersionService) {}
+
   /**
-   * Receives the raw .vla.zip buffer, validates its contents, and installs
-   * the plugin to storage/plugins/{name}/.
-   *
-   * After a successful install the server schedules a graceful restart so the
-   * new plugin module is picked up on the next boot.
+   * Receives the raw .vla.zip buffer, validates its contents, backs up the
+   * current version, and installs the plugin to storage/plugins/{name}/.
    */
   async install(fileBuffer: Buffer): Promise<UploadResult> {
     let zip: AdmZip;
@@ -52,18 +53,31 @@ export class PluginUploadService {
       throw new BadRequestException('dist/index.js not found in archive');
     }
 
-    // ── 3. Extract to storage/plugins/{name}/ ───────────────────────────────
+    // ── 3. Backup current version before overwriting ────────────────────────
     const pluginDir = path.join(PLUGINS_DIR, manifest.name);
+    let previousVersion: string | undefined;
+
     if (fs.existsSync(pluginDir)) {
+      try {
+        const oldManifest = JSON.parse(
+          fs.readFileSync(path.join(pluginDir, 'plugin.json'), 'utf-8'),
+        );
+        previousVersion = oldManifest.version;
+        await this.versionService.backupCurrent(manifest.name, previousVersion!, pluginDir);
+        // Keep only last 3 backups
+        await this.versionService.cleanup(manifest.name, 3);
+      } catch (err) {
+        this.logger.warn(`Could not backup ${manifest.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
       fs.rmSync(pluginDir, { recursive: true, force: true });
     }
+
+    // ── 4. Extract to storage/plugins/{name}/ ───────────────────────────────
     fs.mkdirSync(pluginDir, { recursive: true });
-
     zip.extractAllTo(pluginDir, true);
-    this.logger.log(`Plugin extracted to ${pluginDir}`);
+    this.logger.log(`Plugin extracted to ${pluginDir}${previousVersion ? ` (updated from v${previousVersion})` : ' (new install)'}`);
 
-    // ── 4. Schedule graceful restart ─────────────────────────────────────────
-    // Give the HTTP response time to reach the client before exiting.
+    // ── 5. Schedule graceful restart ─────────────────────────────────────────
     setImmediate(() => {
       this.logger.log(`Restarting server to load plugin "${manifest.name}"…`);
       process.exit(0);
@@ -72,18 +86,54 @@ export class PluginUploadService {
     return {
       name: manifest.name,
       version: manifest.version,
-      message: `Plugin "${manifest.name}" installed. Server is restarting to load it.`,
+      previousVersion,
+      message: previousVersion
+        ? `Plugin "${manifest.name}" updated from v${previousVersion} to v${manifest.version}. Server is restarting.`
+        : `Plugin "${manifest.name}" v${manifest.version} installed. Server is restarting.`,
       restarting: true,
     };
   }
 
-  /** Removes a plugin from disk (does not affect DB — the registry handles that) */
+  /**
+   * Install a plugin from a remote URL.
+   */
+  async installFromUrl(url: string): Promise<UploadResult> {
+    this.logger.log(`Downloading plugin from ${url}`);
+    const res = await fetch(url);
+    if (!res.ok) throw new BadRequestException(`Download failed: HTTP ${res.status}`);
+
+    const contentLength = parseInt(res.headers.get('content-length') ?? '0', 10);
+    if (contentLength > 20 * 1024 * 1024) {
+      throw new BadRequestException('Plugin too large (max 20MB)');
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return this.install(buffer);
+  }
+
+  /** Removes a plugin from disk */
   uninstall(pluginName: string): void {
     const pluginDir = path.join(PLUGINS_DIR, pluginName);
     if (fs.existsSync(pluginDir)) {
       fs.rmSync(pluginDir, { recursive: true, force: true });
       this.logger.log(`Plugin files removed: ${pluginDir}`);
     }
+  }
+
+  /** Rollback to previous version */
+  async rollback(pluginName: string): Promise<{ ok: boolean; restoredVersion?: string; error?: string; restarting?: boolean }> {
+    const pluginDir = path.join(PLUGINS_DIR, pluginName);
+    const result = await this.versionService.rollback(pluginName, pluginDir);
+
+    if (result.ok) {
+      setImmediate(() => {
+        this.logger.log(`Restarting server after rollback of "${pluginName}" to v${result.restoredVersion}`);
+        process.exit(0);
+      });
+      return { ...result, restarting: true };
+    }
+
+    return result;
   }
 
   // ─── Private ──────────────────────────────────────────────────────────────

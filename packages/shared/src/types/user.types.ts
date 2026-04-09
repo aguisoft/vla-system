@@ -22,6 +22,7 @@ export interface AuthUser {
   firstName: string;
   lastName: string;
   role: UserRole;
+  permissions: string[];
 }
 
 export interface JwtPayload {

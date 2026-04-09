@@ -13,9 +13,10 @@ export const PERMISSIONS = {
   PLUGINS_READ:   'plugins.read',
   PLUGINS_MANAGE: 'plugins.manage',
 
-  // ── Virtual Office ─────────────────────────────────────────────────────────
-  OFFICE_READ:   'office.read',
-  OFFICE_MANAGE: 'office.manage',
+  // ── Virtual Office (registered dynamically by office plugin) ────────────────
+  OFFICE_VIEW:    'office.view',
+  OFFICE_CHECKIN: 'office.checkin',
+  OFFICE_MANAGE:  'office.manage',
 
   // ── Academy ────────────────────────────────────────────────────────────────
   ACADEMY_READ:   'academy.read',
@@ -40,8 +41,9 @@ export const PERMISSION_META: Record<Permission, { label: string; group: string 
   'roles.manage':      { label: 'Gestionar roles',       group: 'Roles' },
   'plugins.read':      { label: 'Ver módulos',           group: 'Módulos' },
   'plugins.manage':    { label: 'Gestionar módulos',     group: 'Módulos' },
-  'office.read':       { label: 'Ver oficina virtual',   group: 'Oficina' },
-  'office.manage':     { label: 'Gestionar oficina',     group: 'Oficina' },
+  'office.view':       { label: 'Ver oficina virtual',        group: 'Oficina' },
+  'office.checkin':    { label: 'Hacer check-in/check-out',  group: 'Oficina' },
+  'office.manage':     { label: 'Administrar layouts',        group: 'Oficina' },
   'academy.read':      { label: 'Ver academia',          group: 'Academia' },
   'academy.manage':    { label: 'Gestionar academia',    group: 'Academia' },
   'reports.read':      { label: 'Ver reportes',          group: 'Reportes' },
@@ -70,20 +72,20 @@ export interface PresetRole {
 export const BUILTIN_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   ADMIN: Object.values(PERMISSIONS) as Permission[],
   STAFF: [
-    PERMISSIONS.OFFICE_READ,
+    PERMISSIONS.OFFICE_VIEW,
     PERMISSIONS.USERS_READ,
     PERMISSIONS.PLUGINS_READ,
     PERMISSIONS.ACADEMY_READ,
     PERMISSIONS.REPORTS_READ,
   ],
   PROFESSOR: [
-    PERMISSIONS.OFFICE_READ,
+    PERMISSIONS.OFFICE_VIEW,
     PERMISSIONS.ACADEMY_READ,
     PERMISSIONS.ACADEMY_MANAGE,
     PERMISSIONS.REPORTS_READ,
   ],
   STUDENT: [
-    PERMISSIONS.OFFICE_READ,
+    PERMISSIONS.OFFICE_VIEW,
     PERMISSIONS.ACADEMY_READ,
   ],
 };

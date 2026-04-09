@@ -1,182 +1,249 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
+import type { BitrixAppConfig, BitrixTokens, BitrixCallResult, BitrixClientInterface } from './bitrix.types';
+
+const SETTING_APP = 'bitrix.app';
+const SETTING_TOKENS = 'bitrix.tokens';
+const RATE_KEY = 'core:bitrix:ratelimit';
+const MAX_RPS = 2; // Bitrix allows ~2 req/s per OAuth app
 
 @Injectable()
-export class BitrixService {
+export class BitrixService implements OnModuleInit, BitrixClientInterface {
   private readonly logger = new Logger(BitrixService.name);
-  private readonly webhookUrl: string;
+  private appConfig: BitrixAppConfig | null = null;
+  private tokens: BitrixTokens | null = null;
 
-  constructor(private configService: ConfigService) {
-    this.webhookUrl = this.configService.get('BITRIX_WEBHOOK_URL', '');
-    this.logger.log(`BitrixService init — webhook configured: ${!!this.webhookUrl}`);
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.loadFromDb();
+    if (this.appConfig) {
+      this.logger.log(`Bitrix24 OAuth2 configured for ${this.appConfig.domain}`);
+    } else {
+      this.logger.warn('Bitrix24 no configurado — los plugins que lo requieran estarán en modo degradado');
+    }
   }
 
-  private async bitrixPost(method: string, body: Record<string, unknown>): Promise<any> {
-    const url = `${this.webhookUrl}${method}`;
-    // Use https module directly to avoid undici HTTP/2 negotiation issues
-    const https = require('https');
-    const urlObj = new URL(url);
-    const postData = JSON.stringify(body);
+  // ── Public API (BitrixClientInterface) ──────────────────────────────────────
 
-    const data = await new Promise<any>((resolve, reject) => {
-      const options = {
-        hostname: urlObj.hostname,
-        port: 443,
-        path: urlObj.pathname + urlObj.search,
-        method: 'POST',
-        servername: urlObj.hostname,
-        ALPNProtocols: ['http/1.1'],
-        agent: false, // Disable connection pooling to avoid stale connections
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData),
-          'Host': urlObj.hostname,
-        },
-      };
-      const req = https.request(options, (res: any) => {
-        let raw = '';
-        res.on('data', (chunk: any) => { raw += chunk; });
-        res.on('end', () => {
-          if (res.statusCode >= 400) {
-            reject(new Error(`HTTP ${res.statusCode} for ${method} | headers: ${JSON.stringify(res.headers)} | body: ${raw.slice(0,100)}`));
-          } else {
-            try { resolve(JSON.parse(raw)); } catch { reject(new Error('Invalid JSON response')); }
-          }
-        });
-      });
-      req.on('error', reject);
-      req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
-      req.write(postData);
-      req.end();
+  isConfigured(): boolean {
+    return !!(this.appConfig && this.tokens);
+  }
+
+  getStatus(): { configured: boolean; domain?: string; tokenValid?: boolean; expiresAt?: number } {
+    return {
+      configured: this.isConfigured(),
+      domain: this.appConfig?.domain,
+      tokenValid: this.tokens ? this.tokens.expiresAt > Date.now() : undefined,
+      expiresAt: this.tokens?.expiresAt,
+    };
+  }
+
+  async call<T = any>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    const raw = await this.callRaw<T>(method, params);
+    return raw.result;
+  }
+
+  async callRaw<T = any>(method: string, params: Record<string, unknown> = {}): Promise<BitrixCallResult<T>> {
+    await this.ensureValidToken();
+    await this.rateLimit();
+
+    const url = `https://${this.appConfig!.domain}/rest/${method}.json`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.tokens!.accessToken}`,
+      },
+      body: JSON.stringify(params),
     });
 
-    return data;
+    const data = await res.json() as any;
+
+    // Handle expired token — refresh and retry once
+    if (data.error === 'expired_token' || data.error === 'WRONG_TOKEN') {
+      this.logger.warn(`Token expired calling ${method}, refreshing...`);
+      await this.refreshAccessToken();
+      return this.callRawDirect<T>(method, params);
+    }
+
+    if (!res.ok || data.error) {
+      const errMsg = `[${method}] ${data.error ?? res.status}: ${data.error_description ?? ''}`;
+      throw new Error(errMsg);
+    }
+
+    return { result: data.result, next: data.next, total: data.total };
   }
 
-  async openTimeman(bitrixUserId: number): Promise<boolean> {
-    if (!this.webhookUrl) {
-      this.logger.warn('Bitrix webhook URL not configured, skipping timeman.open');
-      return false;
+  async callAll<T = any>(method: string, params: Record<string, unknown> = {}): Promise<T[]> {
+    const items: T[] = [];
+    let start = 0;
+
+    while (true) {
+      const raw = await this.callRaw<T[]>(method, { ...params, start });
+      const page = raw.result ?? [];
+      items.push(...page);
+      if (!raw.next) break;
+      start = raw.next;
     }
-    try {
-      await this.bitrixPost('timeman.open', { USER_ID: bitrixUserId });
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to open timeman for user ${bitrixUserId}`, error);
-      return false;
-    }
+
+    return items;
   }
 
-  async closeTimeman(bitrixUserId: number): Promise<boolean> {
-    if (!this.webhookUrl) {
-      this.logger.warn('Bitrix webhook URL not configured, skipping timeman.close');
-      return false;
-    }
-    try {
-      await this.bitrixPost('timeman.close', { USER_ID: bitrixUserId });
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to close timeman for user ${bitrixUserId}`, error);
-      return false;
-    }
+  // ── OAuth2 flow ─────────────────────────────────────────────────────────────
+
+  async saveAppConfig(config: BitrixAppConfig): Promise<void> {
+    this.appConfig = config;
+    await this.prisma.systemSetting.upsert({
+      where: { key: SETTING_APP },
+      create: { key: SETTING_APP, value: config as any },
+      update: { value: config as any },
+    });
+    this.logger.log(`Bitrix app config saved for domain ${config.domain}`);
   }
 
-  /**
-   * Get the active-today status for multiple Bitrix users via im.user.list.get.
-   * Returns a map of bitrixUserId → wasActiveToday (bool).
-   */
-  async getBulkActiveStatus(bitrixUserIds: number[]): Promise<Map<number, boolean>> {
-    const result = new Map<number, boolean>();
-    if (!this.webhookUrl || bitrixUserIds.length === 0) return result;
-
-    const today = new Date().toISOString().slice(0, 10);
-    try {
-      const data = await this.bitrixPost('im.user.list.get', { id: bitrixUserIds });
-      const users: Record<string, any> = data?.result ?? {};
-      for (const [uid, info] of Object.entries(users)) {
-        const lastActivity = (info.last_activity_date ?? '').slice(0, 10);
-        result.set(Number(uid), lastActivity === today);
-      }
-    } catch (err: any) {
-      this.logger.error('Failed to get bulk IM status from Bitrix24', err?.message);
-    }
-    return result;
+  getAuthorizeUrl(redirectUri: string): string {
+    if (!this.appConfig) throw new Error('Bitrix app not configured');
+    return (
+      `https://${this.appConfig.domain}/oauth/authorize/` +
+      `?client_id=${this.appConfig.clientId}` +
+      `&response_type=code` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}`
+    );
   }
 
-  /**
-   * Query current timeman status for a user.
-   * Returns STATUS and ACTIVE fields — EXPIRED+ACTIVE=true means the session
-   * auto-expired but the user is still considered clocked in.
-   */
-  async getTimemanStatus(bitrixUserId: number): Promise<{ status: 'OPENED' | 'CLOSED' | 'EXPIRED' | 'PAUSED' | null; active: boolean }> {
-    if (!this.webhookUrl) return { status: null, active: false };
-    try {
-      const data = await this.bitrixPost('timeman.status', { USER_ID: bitrixUserId });
-      const result = data?.result ?? {};
-      return {
-        status: result.STATUS ?? null,
-        active: result.ACTIVE === true || result.ACTIVE === 'true',
-      };
-    } catch (err: any) {
-      this.logger.error(`getTimemanStatus failed for user ${bitrixUserId}: ${err?.message}`);
-      return { status: null, active: false };
-    }
-  }
+  async handleOAuthCallback(code: string, redirectUri: string): Promise<void> {
+    if (!this.appConfig) throw new Error('Bitrix app not configured');
 
-  /** Register VLA as an event handler in Bitrix24 for timeman events */
-  async bindWebhookEvents(handlerUrl: string): Promise<boolean> {
-    if (!this.webhookUrl) {
-      this.logger.warn('Bitrix webhook URL not configured, cannot bind events');
-      return false;
-    }
-    const events = ['ONTIMEMANOPEN', 'ONTIMEMANCLOSE'];
-    let allOk = true;
-    for (const event of events) {
-      try {
-        await this.bitrixPost('event.bind', { event, handler: handlerUrl });
-        this.logger.log(`Registered Bitrix event: ${event} → ${handlerUrl}`);
-      } catch (error) {
-        this.logger.error(`Failed to bind Bitrix event ${event}`, error);
-        allOk = false;
-      }
-    }
-    return allOk;
-  }
+    const tokenUrl =
+      `https://oauth.bitrix.info/oauth/token/` +
+      `?grant_type=authorization_code` +
+      `&client_id=${this.appConfig.clientId}` +
+      `&client_secret=${this.appConfig.clientSecret}` +
+      `&code=${code}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
-  /** Debug: test timeman.status directly, returning raw result or error */
-  async debugTimemanStatus(bitrixUserId: number): Promise<Record<string, unknown>> {
-    if (!this.webhookUrl) return { webhookConfigured: false, error: 'No webhook URL' };
-    const { spawn } = require('child_process');
-    const url = `${this.webhookUrl}timeman.status`;
-    const body = JSON.stringify({ USER_ID: bitrixUserId });
-    // Use a child Node.js process to bypass any NestJS/undici interference
-    const childResult = await new Promise<string>((resolve) => {
-      const child = spawn('node', ['-e', `
-        (async () => {
-          try {
-            const r = await fetch('${url}', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: '${body}',
-            });
-            const t = await r.text();
-            console.log(JSON.stringify({ status: r.status, body: t.slice(0, 300) }));
-          } catch(e) {
-            console.log(JSON.stringify({ error: e.message }));
-          }
-        })();
-      `]);
-      let out = '';
-      child.stdout.on('data', (d: any) => { out += d.toString(); });
-      child.stderr.on('data', () => {});
-      child.on('close', () => resolve(out.trim()));
+    const res = await fetch(tokenUrl);
+    const data = await res.json() as any;
+
+    if (data.error) {
+      throw new Error(`OAuth error: ${data.error} — ${data.error_description ?? ''}`);
+    }
+
+    await this.saveTokens({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
     });
 
-    try {
-      const childParsed = JSON.parse(childResult);
-      return { webhookConfigured: true, childProcess: childParsed };
-    } catch {
-      return { webhookConfigured: true, childResult };
+    this.logger.log('Bitrix OAuth2 tokens obtained successfully');
+  }
+
+  async disconnect(): Promise<void> {
+    this.tokens = null;
+    await this.prisma.systemSetting.deleteMany({ where: { key: { in: [SETTING_APP, SETTING_TOKENS] } } });
+    this.appConfig = null;
+    this.logger.log('Bitrix integration disconnected');
+  }
+
+  /** Reload config from DB (useful after external changes) */
+  async reload(): Promise<void> {
+    await this.loadFromDb();
+  }
+
+  // ── Internal ────────────────────────────────────────────────────────────────
+
+  private async loadFromDb(): Promise<void> {
+    const [appRow, tokensRow] = await Promise.all([
+      this.prisma.systemSetting.findUnique({ where: { key: SETTING_APP } }),
+      this.prisma.systemSetting.findUnique({ where: { key: SETTING_TOKENS } }),
+    ]);
+    this.appConfig = appRow ? (appRow.value as unknown as BitrixAppConfig) : null;
+    this.tokens = tokensRow ? (tokensRow.value as unknown as BitrixTokens) : null;
+  }
+
+  private async saveTokens(tokens: BitrixTokens): Promise<void> {
+    this.tokens = tokens;
+    await this.prisma.systemSetting.upsert({
+      where: { key: SETTING_TOKENS },
+      create: { key: SETTING_TOKENS, value: tokens as any },
+      update: { value: tokens as any },
+    });
+  }
+
+  private async ensureValidToken(): Promise<void> {
+    if (!this.appConfig || !this.tokens) {
+      throw new Error('Bitrix24 no configurado. Configure la integración en Administración → Integraciones.');
     }
+    // Refresh if within 60s of expiry
+    if (this.tokens.expiresAt - Date.now() < 60_000) {
+      await this.refreshAccessToken();
+    }
+  }
+
+  private async refreshAccessToken(): Promise<void> {
+    if (!this.appConfig || !this.tokens?.refreshToken) {
+      throw new Error('Cannot refresh: no refresh token available');
+    }
+
+    const url =
+      `https://oauth.bitrix.info/oauth/token/` +
+      `?grant_type=refresh_token` +
+      `&client_id=${this.appConfig.clientId}` +
+      `&client_secret=${this.appConfig.clientSecret}` +
+      `&refresh_token=${this.tokens.refreshToken}`;
+
+    const res = await fetch(url);
+    const data = await res.json() as any;
+
+    if (data.error) {
+      this.logger.error(`Token refresh failed: ${data.error} — ${data.error_description ?? ''}`);
+      throw new Error(`Token refresh failed: ${data.error}`);
+    }
+
+    await this.saveTokens({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
+    });
+
+    this.logger.log('Bitrix access token refreshed');
+  }
+
+  /** Direct call without token validation (used after refresh to avoid recursion) */
+  private async callRawDirect<T>(method: string, params: Record<string, unknown>): Promise<BitrixCallResult<T>> {
+    await this.rateLimit();
+    const url = `https://${this.appConfig!.domain}/rest/${method}.json`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.tokens!.accessToken}`,
+      },
+      body: JSON.stringify(params),
+    });
+
+    const data = await res.json() as any;
+    if (!res.ok || data.error) {
+      throw new Error(`[${method}] ${data.error ?? res.status}: ${data.error_description ?? ''}`);
+    }
+    return { result: data.result, next: data.next, total: data.total };
+  }
+
+  /** Simple rate limiter: max MAX_RPS requests per second via Redis counter */
+  private async rateLimit(): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    const key = `${RATE_KEY}:${now}`;
+    const raw = await this.redis.get(key);
+    const count = raw ? parseInt(raw, 10) : 0;
+    if (count >= MAX_RPS) {
+      const delay = 1000 - (Date.now() % 1000);
+      await new Promise(r => setTimeout(r, delay));
+    }
+    await this.redis.set(key, String(count + 1), 2);
   }
 }

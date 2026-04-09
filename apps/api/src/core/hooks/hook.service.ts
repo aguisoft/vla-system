@@ -19,34 +19,32 @@ export interface HookRegistrationOptions {
   pluginName?: string;
 }
 
-/**
- * VLA Hook System
- *
- * Two hook types:
- *  - Actions: one-way notifications. Plugins react to events but cannot alter
- *             the original data. Use `registerAction` / `doAction`.
- *  - Filters: data-transformation chains. Each handler receives the current
- *             value and must return the (possibly modified) value.
- *             Use `registerFilter` / `applyFilter`.
- *
- * Priority: handlers are executed in ascending order (1 before 10 before 100).
- */
+/** Metadata for a declared hook (used for documentation / admin UI) */
+export interface HookMetadata {
+  description?: string;
+  payload?: Record<string, string>;
+}
+
+/** Full hook info returned by the discovery endpoint */
+export interface DeclaredHookInfo {
+  hookName: string;
+  pluginName: string;
+  type: 'action' | 'filter';
+  description?: string;
+  payload?: Record<string, string>;
+  listeners: { pluginName: string; priority: number }[];
+}
+
 @Injectable()
 export class HookService {
   private readonly logger = new Logger(HookService.name);
   private readonly actions = new Map<string, ActionHandler[]>();
   private readonly filters = new Map<string, FilterHandler[]>();
+  /** Metadata registry for declared hooks */
+  private readonly metadata = new Map<string, { pluginName: string; type: 'action' | 'filter'; meta: HookMetadata }>();
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
-  /**
-   * Register a listener for an action hook.
-   *
-   * @example
-   * hookService.registerAction(CORE_HOOKS.USER_CREATED, async ({ user }) => {
-   *   await sendWelcomeEmail(user);
-   * }, { pluginName: 'mailer' });
-   */
   registerAction<T = any>(
     hookName: string,
     handler: (payload: T) => void | Promise<void>,
@@ -59,14 +57,10 @@ export class HookService {
     this.actions.set(hookName, list);
   }
 
-  /**
-   * Fire an action hook. All registered listeners run in priority order.
-   * Errors in individual listeners are caught and logged so they don't block
-   * the rest of the chain.
-   */
   async doAction<T = any>(hookName: string, payload: T): Promise<void> {
     const handlers = this.actions.get(hookName) ?? [];
     for (const { handler, pluginName } of handlers) {
+      if (pluginName.endsWith(':declared')) continue; // skip declaration markers
       try {
         await handler(payload);
       } catch (err) {
@@ -80,16 +74,6 @@ export class HookService {
 
   // ─── Filters ─────────────────────────────────────────────────────────────
 
-  /**
-   * Register a filter hook. The handler receives the current value and must
-   * return the (possibly modified) value.
-   *
-   * @example
-   * hookService.registerFilter(CORE_HOOKS.USER_SERIALIZE, (user) => ({
-   *   ...user,
-   *   displayName: `${user.firstName} ${user.lastName}`,
-   * }), { pluginName: 'profile' });
-   */
   registerFilter<T = any>(
     hookName: string,
     handler: (payload: T) => T | Promise<T>,
@@ -102,10 +86,6 @@ export class HookService {
     this.filters.set(hookName, list);
   }
 
-  /**
-   * Run a filter chain, returning the final transformed value.
-   * Errors in individual handlers are caught; the last good value is passed on.
-   */
   async applyFilter<T = any>(hookName: string, payload: T): Promise<T> {
     const handlers = this.filters.get(hookName) ?? [];
     let value = payload;
@@ -122,9 +102,27 @@ export class HookService {
     return value;
   }
 
-  // ─── Introspection ───────────────────────────────────────────────────────
+  // ─── Declaration & Introspection ────────────────────────────────────────
 
-  /** Returns the names of all registered action and filter hooks. */
+  /**
+   * Declare that a hook exists with optional metadata.
+   * Declared hooks appear in the admin Hooks tab for documentation.
+   */
+  declareHook(
+    hookName: string,
+    pluginName = 'core',
+    meta?: HookMetadata,
+  ): void {
+    // Ensure it appears in the actions map for getRegisteredHooks()
+    if (!this.actions.has(hookName)) {
+      this.actions.set(hookName, []);
+    }
+    // Determine type: if it's in filters map, it's a filter; else action
+    const type = this.filters.has(hookName) ? 'filter' : 'action';
+    this.metadata.set(hookName, { pluginName, type, meta: meta ?? {} });
+  }
+
+  /** Basic hook list (backward compatible) */
   getRegisteredHooks(): { actions: string[]; filters: string[] } {
     return {
       actions: Array.from(this.actions.keys()),
@@ -132,40 +130,57 @@ export class HookService {
     };
   }
 
-  /** Returns all handlers registered for a specific action hook. */
-  getActionHandlers(hookName: string): { pluginName: string; priority: number }[] {
-    return (this.actions.get(hookName) ?? []).map(({ pluginName, priority }) => ({
-      pluginName,
-      priority,
-    }));
-  }
+  /** Detailed hook catalog for the admin UI */
+  getHooksCatalog(): DeclaredHookInfo[] {
+    const catalog: DeclaredHookInfo[] = [];
+    const seen = new Set<string>();
 
-  /** Returns all handlers registered for a specific filter hook. */
-  getFilterHandlers(hookName: string): { pluginName: string; priority: number }[] {
-    return (this.filters.get(hookName) ?? []).map(({ pluginName, priority }) => ({
-      pluginName,
-      priority,
-    }));
-  }
-
-  /**
-   * Declare that a hook name exists without attaching logic.
-   * Use this instead of registering a no-op handler.
-   * Declared hooks appear in GET /plugins/hooks for documentation purposes.
-   */
-  declareHook(hookName: string, pluginName = 'core'): void {
-    if (!this.actions.has(hookName)) {
-      this.actions.set(hookName, []);
-    }
-    // Store as metadata only — no handler fn, skipped during doAction
-    const list = this.actions.get(hookName)!;
-    const alreadyDeclared = list.some((h) => h.pluginName === pluginName && !h.handler.name);
-    if (!alreadyDeclared) {
-      list.push({
-        handler: async () => { /* declaration marker — never executed */ },
-        priority: 999,
-        pluginName: `${pluginName}:declared`,
+    // Actions
+    for (const [hookName, handlers] of this.actions) {
+      seen.add(hookName);
+      const meta = this.metadata.get(hookName);
+      catalog.push({
+        hookName,
+        pluginName: meta?.pluginName ?? 'core',
+        type: meta?.type ?? 'action',
+        description: meta?.meta.description,
+        payload: meta?.meta.payload,
+        listeners: handlers
+          .filter(h => !h.pluginName.endsWith(':declared'))
+          .map(h => ({ pluginName: h.pluginName, priority: h.priority })),
       });
     }
+
+    // Filters not already in actions
+    for (const [hookName, handlers] of this.filters) {
+      if (seen.has(hookName)) {
+        // Merge listeners into existing entry
+        const existing = catalog.find(c => c.hookName === hookName);
+        if (existing) {
+          existing.type = 'filter';
+          existing.listeners.push(...handlers.map(h => ({ pluginName: h.pluginName, priority: h.priority })));
+        }
+        continue;
+      }
+      const meta = this.metadata.get(hookName);
+      catalog.push({
+        hookName,
+        pluginName: meta?.pluginName ?? 'core',
+        type: 'filter',
+        description: meta?.meta.description,
+        payload: meta?.meta.payload,
+        listeners: handlers.map(h => ({ pluginName: h.pluginName, priority: h.priority })),
+      });
+    }
+
+    return catalog.sort((a, b) => a.hookName.localeCompare(b.hookName));
+  }
+
+  getActionHandlers(hookName: string): { pluginName: string; priority: number }[] {
+    return (this.actions.get(hookName) ?? []).map(({ pluginName, priority }) => ({ pluginName, priority }));
+  }
+
+  getFilterHandlers(hookName: string): { pluginName: string; priority: number }[] {
+    return (this.filters.get(hookName) ?? []).map(({ pluginName, priority }) => ({ pluginName, priority }));
   }
 }

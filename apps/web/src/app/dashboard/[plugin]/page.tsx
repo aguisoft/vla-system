@@ -11,7 +11,7 @@ export default function PluginFallbackPage() {
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    api.get('/plugins/all')
+    api.get('/plugins')
       .then((res) => {
         const found = (res.data as PluginRegistration[]).find(
           (p) => p.name === pluginName || p.route === `/dashboard/${pluginName}`,

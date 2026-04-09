@@ -3,6 +3,7 @@ import {
   Get, Res, Param, UnauthorizedException, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
@@ -29,6 +30,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private configService: ConfigService,
+    private prisma: PrismaService,
   ) {}
 
   @ApiOperation({ summary: 'Login with email & password' })
@@ -54,9 +56,18 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  getMe(@Request() req: any) {
+  async getMe(@Request() req: any) {
+    const userId = req.user.sub ?? req.user.id;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, firstName: true, lastName: true, role: true },
+    });
     return {
-      ...req.user,
+      id: user?.id ?? userId,
+      email: user?.email ?? req.user.email,
+      firstName: user?.firstName ?? '',
+      lastName: user?.lastName ?? '',
+      role: user?.role ?? req.user.role,
       permissions: req.user.permissions ?? [],
       isImpersonated: !!req.user.impersonatedBy,
     };

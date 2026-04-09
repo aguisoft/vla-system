@@ -50,10 +50,10 @@ function PluginLabel({ name }: { name: string; description: string }) {
 }
 
 function NavItem({ plugin, active }: { plugin: PluginRegistration; active: boolean }) {
-  const icon = PLUGIN_ICONS[plugin.icon] ?? PLUGIN_ICONS.default;
+  const icon = PLUGIN_ICONS[plugin.icon ?? 'default'] ?? PLUGIN_ICONS.default;
   return (
     <Link
-      href={plugin.route}
+      href={plugin.route ?? '#'}
       className={cn(
         'group relative flex flex-col items-center gap-1 px-2 py-3 rounded-xl transition-all w-full',
         active
@@ -79,7 +79,12 @@ export function NavSidebar() {
   const { user, logout } = useAuthStore();
 
   const isAdmin = user?.role === UserRole.ADMIN;
-  const plugins = allPlugins.filter((p) => !p.adminOnly || isAdmin);
+  const userPerms = user?.permissions ?? [];
+  const plugins = allPlugins.filter((p) => {
+    if (p.adminOnly && !isAdmin) return false;
+    if (p.accessPermissions.length === 0) return true;
+    return p.accessPermissions.some((perm) => userPerms.includes(perm));
+  });
 
   const handleLogout = () => {
     logout();
@@ -103,7 +108,7 @@ export function NavSidebar() {
           <NavItem
             key={plugin.name}
             plugin={plugin}
-            active={pathname.startsWith(plugin.route)}
+            active={!!(plugin.route && pathname.startsWith(plugin.route))}
           />
         ))}
       </nav>
