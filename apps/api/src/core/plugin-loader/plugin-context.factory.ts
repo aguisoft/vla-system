@@ -64,7 +64,12 @@ export class PluginContextFactory {
 
       cron: (expression, handler) => {
         const jobName = `plugin:${pluginName}:${expression}`;
-        const job = new CronJob(expression, handler, null, true, 'UTC');
+        // Wrap handler to catch unhandled errors — prevents plugin crons from crashing the API
+        const safeHandler = async () => {
+          try { await handler(); }
+          catch (err) { logger.error(`Cron "${expression}" error: ${err instanceof Error ? err.message : String(err)}`); }
+        };
+        const job = new CronJob(expression, safeHandler, null, true, 'UTC');
         // Register so NestJS can list/stop it; ignore duplicate errors (idempotent on restart)
         try {
           schedulerRegistry.addCronJob(jobName, job as any);

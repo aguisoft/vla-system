@@ -8,8 +8,6 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { UserRole } from '@vla/shared';
 
 @Controller('admin/integrations/bitrix')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
 export class BitrixController {
   constructor(
     private readonly bitrix: BitrixService,
@@ -18,11 +16,15 @@ export class BitrixController {
 
   @Get('status')
   @Header('Cache-Control', 'no-store')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   getStatus() {
     return this.bitrix.getStatus();
   }
 
   @Post('configure')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   async configure(
     @Body() body: { clientId: string; clientSecret: string; domain: string },
   ) {
@@ -39,6 +41,8 @@ export class BitrixController {
   }
 
   @Get('authorize')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   authorize(@Res() res: Response) {
     const frontendUrl = this.config.get<string>('FRONTEND_URL')!;
     const redirectUri = `${frontendUrl}/api/v1/admin/integrations/bitrix/callback`;
@@ -60,6 +64,8 @@ export class BitrixController {
   }
 
   @Post('test')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   async test() {
     try {
       const user = await this.bitrix.call<any>('user.current');
@@ -74,6 +80,8 @@ export class BitrixController {
   }
 
   @Delete('disconnect')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   async disconnect() {
     await this.bitrix.disconnect();
     return { ok: true };
