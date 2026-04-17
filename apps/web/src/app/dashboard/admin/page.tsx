@@ -1117,43 +1117,45 @@ export default function AdminPage() {
       )}
 
       {/* Header */}
-      <header className="flex items-center gap-4 px-6 py-3 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
-        <div>
+      <header className="flex flex-col md:flex-row md:items-center gap-2 px-4 md:px-6 py-3 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
+        <div className="flex-shrink-0">
           <h1 className="font-bold text-gray-900 dark:text-white text-base">Panel de Administración</h1>
           <p className="text-xs text-gray-400">Gestión del sistema VLA</p>
         </div>
-        <div className="flex items-center gap-1 ml-4 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={cn(
-                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                tab === t.key
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-max">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  'px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap',
+                  tab === t.key
+                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 md:p-6">
 
         {/* ── USERS TAB ── */}
         {tab === 'users' && (
           <div className="max-w-5xl mx-auto space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
               <input
                 type="text"
                 placeholder="Buscar usuario..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 w-72"
+                className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 w-full sm:w-72"
               />
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-shrink-0">
                 <span className="text-xs text-gray-400">{filtered.length} usuarios</span>
                 <button onClick={() => { setUserModal({ mode: 'create' }); setUserForm({ firstName: '', lastName: '', email: '', password: '', role: 'STAFF' }); }}
                   className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-green-500 text-white hover:bg-green-600 transition-colors">
@@ -1168,14 +1170,15 @@ export default function AdminPage() {
                   <div className="w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : (
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-gray-800 text-xs text-gray-400 uppercase tracking-wide">
                       <th className="px-4 py-3 text-left">Nombre</th>
-                      <th className="px-4 py-3 text-left">Email</th>
+                      <th className="px-4 py-3 text-left hidden sm:table-cell">Email</th>
                       <th className="px-4 py-3 text-left">Rol</th>
-                      <th className="px-4 py-3 text-left">Bitrix</th>
-                      <th className="px-4 py-3 text-left">Estado</th>
+                      <th className="px-4 py-3 text-left hidden md:table-cell">Bitrix</th>
+                      <th className="px-4 py-3 text-left hidden sm:table-cell">Estado</th>
                       <th className="px-4 py-3 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -1188,7 +1191,7 @@ export default function AdminPage() {
                         <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
                           {u.firstName} {u.lastName}
                         </td>
-                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{u.email}</td>
+                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs hidden sm:table-cell">{u.email}</td>
                         <td className="px-4 py-3">
                           {editingId === u.id ? (
                             <div className="flex items-center gap-1.5">
@@ -1231,10 +1234,10 @@ export default function AdminPage() {
                             </div>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-400">
+                        <td className="px-4 py-3 text-xs text-gray-400 hidden md:table-cell">
                           {u.bitrixMapping ? `#${u.bitrixMapping.bitrixUserId}` : '—'}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 hidden sm:table-cell">
                           <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium',
                             u.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-500')}>
                             {u.isActive ? 'Activo' : 'Inactivo'}
@@ -1259,6 +1262,7 @@ export default function AdminPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           </div>
@@ -1572,7 +1576,7 @@ export default function AdminPage() {
         {/* ── SYSTEM TAB ── */}
         {tab === 'system' && (
           <div className="max-w-3xl mx-auto space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 { label: 'Plataforma', value: 'VLA System' },
                 { label: 'Módulos activos', value: String(plugins.length) },
