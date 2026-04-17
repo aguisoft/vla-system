@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth.store';
 import { NavSidebar } from './components/NavSidebar';
@@ -9,6 +9,7 @@ import api from '@/lib/api';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, _hasHydrated, user, setUser, stopImpersonation } = useAuthStore();
   const router = useRouter();
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   async function handleStopImpersonation() {
     try {
@@ -52,7 +53,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       )}
       <div className="flex flex-1 overflow-hidden">
-        <NavSidebar />
+        <NavSidebar isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {children}
         </div>
