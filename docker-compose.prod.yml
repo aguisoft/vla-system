@@ -78,7 +78,7 @@ services:
     environment:
       API_URL: http://api:3001
     ports:
-      - "3000:3000"
+      - "3005:3000"
 
 volumes:
   postgres_data:
