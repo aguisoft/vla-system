@@ -7,9 +7,10 @@ import { NavSidebar } from './components/NavSidebar';
 import api from '@/lib/api';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, _hasHydrated, user, setUser, stopImpersonation } = useAuthStore();
+  const { isAuthenticated, _hasHydrated, user, stopImpersonation } = useAuthStore();
   const router = useRouter();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const openDrawer  = useCallback(() => setIsDrawerOpen(true),  []);
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
 
   async function handleStopImpersonation() {
@@ -61,7 +62,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           VLA
         </div>
         <button
-          onClick={() => setIsDrawerOpen(true)}
+          onClick={openDrawer}
           aria-label="Abrir menú"
           className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
