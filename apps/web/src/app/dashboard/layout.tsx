@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth.store';
 import { NavSidebar } from './components/NavSidebar';
@@ -10,6 +10,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { isAuthenticated, _hasHydrated, user, setUser, stopImpersonation } = useAuthStore();
   const router = useRouter();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
 
   async function handleStopImpersonation() {
     try {
@@ -39,6 +40,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
+      {/* Impersonation banner */}
       {user?.isImpersonated && (
         <div className="flex items-center justify-between px-6 py-2 bg-amber-500 text-white text-xs font-medium flex-shrink-0 z-50">
           <span>
@@ -52,8 +54,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
       )}
-      <div className="flex flex-1 overflow-hidden">
-        <NavSidebar isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
+
+      {/* Mobile top bar */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-12 flex items-center justify-between px-4 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
+        <div className="w-8 h-8 rounded-xl bg-green-500 flex items-center justify-center text-white font-bold text-xs">
+          VLA
+        </div>
+        <button
+          onClick={() => setIsDrawerOpen(true)}
+          aria-label="Abrir menú"
+          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Main layout row */}
+      <div className="flex flex-1 overflow-hidden pt-12 md:pt-0">
+        <NavSidebar isOpen={isDrawerOpen} onClose={closeDrawer} />
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {children}
         </div>
