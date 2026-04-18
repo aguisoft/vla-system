@@ -15,4 +15,9 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+const withSerwist = require('@serwist/next').default;
+
+module.exports = withSerwist({
+  swSrc:  'src/sw/sw.ts',
+  swDest: 'public/sw.js',
+})(nextConfig);
