@@ -30,10 +30,11 @@ model User {
   customRole   CustomRole? @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
 
   // Relations
-  presenceStatus  PresenceStatus?
-  checkInRecords  CheckInRecord[]
-  userAvatar      UserAvatar?
-  bitrixMapping   BitrixUserMapping?
+  presenceStatus    PresenceStatus?
+  checkInRecords    CheckInRecord[]
+  userAvatar        UserAvatar?
+  bitrixMapping     BitrixUserMapping?
+  pushSubscriptions PushSubscription[]
 
   @@schema("core")
 }
@@ -105,6 +106,19 @@ model PluginMigration {
   appliedAt  DateTime @default(now())
 
   @@unique([pluginName, version])
+  @@schema("core")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@schema("core")
 }
 
