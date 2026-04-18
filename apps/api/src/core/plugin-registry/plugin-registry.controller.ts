@@ -23,6 +23,7 @@ import { PluginUploadService } from '../plugin-loader/plugin-upload.service';
 import { PluginMigrationService } from '../plugin-loader/plugin-migration.service';
 import { PluginVersionService } from '../plugin-loader/plugin-version.service';
 import { PluginDependencyService } from '../plugin-loader/plugin-dependency.service';
+import { PushService } from '../push/push.service';
 
 class UpdateConfigDto {
   @ApiProperty({ description: 'Arbitrary plugin configuration object' })
@@ -49,6 +50,7 @@ export class PluginRegistryController {
     private readonly migrations: PluginMigrationService,
     private readonly versions: PluginVersionService,
     private readonly dependencies: PluginDependencyService,
+    private readonly push: PushService,
   ) {}
 
   @ApiOperation({ summary: 'List all plugins (admin sees all, users see active only)' })
@@ -146,7 +148,15 @@ export class PluginRegistryController {
     if (!file) {
       throw new NotFoundException('No file provided');
     }
-    return this.uploadService.install(file.buffer);
+    const result = await this.uploadService.install(file.buffer);
+
+    this.push.sendToAdmins({
+      title: `Plugin instalado: ${result.name}`,
+      body:  `v${result.version} instalado correctamente`,
+      url:   '/dashboard/admin',
+    }).catch(() => {});
+
+    return result;
   }
 
   @ApiOperation({ summary: 'Install plugin from URL (admin only)' })
