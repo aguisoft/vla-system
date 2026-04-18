@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth.store';
 import { NavSidebar } from './components/NavSidebar';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 import api from '@/lib/api';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -12,6 +13,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const openDrawer  = useCallback(() => setIsDrawerOpen(true),  []);
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), []);
+
+  usePushNotifications();
 
   async function handleStopImpersonation() {
     try {
