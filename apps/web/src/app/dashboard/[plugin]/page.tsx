@@ -52,7 +52,7 @@ export default function PluginFallbackPage() {
   if (plugin.hasFrontend) {
     return (
       <iframe
-        src={`/api/v1/p/${plugin.name}/ui/`}
+        src={`/api/v1/p/${plugin.name}/ui/index.html`}
         className="flex-1 w-full border-0"
         style={{ height: '100%' }}
         title={plugin.name}

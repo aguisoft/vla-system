@@ -98,8 +98,14 @@ export class PluginLoaderService implements OnModuleInit {
         expressApp.use(mountPath, pluginRouter);
 
         if (hasFrontend) {
-          expressApp.use(`${mountPath}/ui`, express.static(uiDir));
-          this.logger.log(`Plugin frontend served at ${mountPath}/ui: ${manifest.name}`);
+          const uiMount = `${mountPath}/ui`;
+          // redirect: false prevents Express from 301-redirecting /ui → /ui/ for directories.
+          // Next.js 308s /ui/ → /ui, creating an infinite redirect loop without this flag.
+          expressApp.use(uiMount, express.static(uiDir, { redirect: false }));
+          expressApp.use(uiMount, (_req: any, res: any) => {
+            res.sendFile(path.join(uiDir, 'index.html'));
+          });
+          this.logger.log(`Plugin frontend served at ${uiMount}: ${manifest.name}`);
         }
 
         this.logger.log(`Plugin loaded and mounted at ${mountPath}: ${manifest.name} v${manifest.version}`);
