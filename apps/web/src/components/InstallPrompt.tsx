@@ -42,6 +42,7 @@ export function InstallPrompt() {
     (deferredPrompt as any).prompt();
     const { outcome } = await (deferredPrompt as any).userChoice;
     if (outcome === 'accepted') dismiss();
+    else setVisible(false); // banner consumed its one prompt() call — hide for the session
   }
 
   if (!visible) return null;

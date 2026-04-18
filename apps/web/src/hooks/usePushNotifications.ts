@@ -23,9 +23,9 @@ export function usePushNotifications() {
 
     const timer = setTimeout(async () => {
       try {
-        localStorage.setItem(ASKED_KEY, '1');
-
         const permission = await Notification.requestPermission();
+        localStorage.setItem(ASKED_KEY, '1'); // mark asked regardless of outcome
+
         if (permission !== 'granted') return;
 
         const registration = await navigator.serviceWorker.ready;

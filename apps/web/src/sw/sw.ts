@@ -12,6 +12,16 @@ const serwist = new Serwist({
   navigationPreload: true,
 
   runtimeCaching: [
+    // Plugin UI static assets — more specific, must come before the generic /api/v1/ rule
+    {
+      matcher:  /^\/api\/v1\/p\/.*\/ui\//,
+      handler: 'StaleWhileRevalidate',
+      options: {
+        cacheName:  'vla-plugin-ui-cache',
+        expiration: { maxEntries: 200, maxAgeSeconds: 86400 },
+      },
+    },
+    // API data — network first, 5s timeout, fallback to 24h cache
     {
       matcher:  /^\/api\/v1\//,
       handler: 'NetworkFirst',
@@ -20,14 +30,6 @@ const serwist = new Serwist({
         networkTimeoutSeconds: 5,
         expiration:           { maxEntries: 60, maxAgeSeconds: 86400 },
         cacheableResponse:    { statuses: [0, 200] },
-      },
-    },
-    {
-      matcher:  /^\/api\/v1\/p\/.*\/ui\//,
-      handler: 'StaleWhileRevalidate',
-      options: {
-        cacheName:  'vla-plugin-ui-cache',
-        expiration: { maxEntries: 200, maxAgeSeconds: 86400 },
       },
     },
     {

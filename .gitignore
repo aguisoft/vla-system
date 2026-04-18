@@ -7,6 +7,10 @@ dist/
 apps/api/storage/plugins/*/
 !apps/api/storage/plugins/.gitkeep
 
+# Generated service worker (built by next build, not tracked)
+apps/web/public/sw.js
+apps/web/public/sw.js.map
+
 # Playwright
 e2e/.auth/
 playwright-report/

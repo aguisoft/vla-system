@@ -1,14 +1,21 @@
-import { Body, Controller, Delete, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import { IsNotEmpty, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PushService } from './push.service';
 
+class PushKeysDto {
+  @IsString() @IsNotEmpty() p256dh!: string;
+  @IsString() @IsNotEmpty() auth!: string;
+}
+
 class SubscribeDto {
-  endpoint!: string;
-  keys!: { p256dh: string; auth: string };
+  @IsString() @IsNotEmpty() endpoint!: string;
+  @ValidateNested() @Type(() => PushKeysDto) keys!: PushKeysDto;
 }
 
 class UnsubscribeDto {
-  endpoint!: string;
+  @IsString() @IsNotEmpty() endpoint!: string;
 }
 
 @Controller('push')
@@ -18,13 +25,20 @@ export class PushController {
 
   @Post('subscribe')
   async subscribe(@Req() req: any, @Body() body: SubscribeDto) {
+    if (!body?.endpoint || !body?.keys?.p256dh || !body?.keys?.auth) {
+      throw new BadRequestException('endpoint and keys (p256dh, auth) are required');
+    }
     await this.push.subscribe(req.user.id, body.endpoint, body.keys.p256dh, body.keys.auth);
     return { ok: true };
   }
 
   @Delete('subscribe')
-  async unsubscribe(@Body() body: UnsubscribeDto) {
-    await this.push.unsubscribe(body.endpoint);
+  @HttpCode(200)
+  async unsubscribe(@Req() req: any, @Body() body: UnsubscribeDto) {
+    if (!body?.endpoint) {
+      throw new BadRequestException('endpoint is required');
+    }
+    await this.push.unsubscribeForUser(body.endpoint, req.user.id);
     return { ok: true };
   }
 }
