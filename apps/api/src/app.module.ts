@@ -17,6 +17,7 @@ import { RolesModule } from './core/roles/roles.module';
 import { PermissionsModule } from './core/permissions/permissions.module';
 import { LogBufferModule } from './core/log-buffer/log-buffer.module';
 import { BitrixModule } from './core/integrations/bitrix/bitrix.module';
+import { PushModule } from './core/push/push.module';
 
 @Module({
   providers: [
@@ -49,6 +50,9 @@ import { BitrixModule } from './core/integrations/bitrix/bitrix.module';
         GOOGLE_CLIENT_ID:     Joi.string().optional().allow(''),
         GOOGLE_CLIENT_SECRET: Joi.string().optional().allow(''),
         GOOGLE_CALLBACK_URL:  Joi.string().uri().optional().allow(''),
+        VAPID_PUBLIC_KEY:     Joi.string().optional().allow(''),
+        VAPID_PRIVATE_KEY:    Joi.string().optional().allow(''),
+        VAPID_SUBJECT:        Joi.string().optional().allow(''),
       }),
       validationOptions: { abortEarly: false },
     }),
@@ -70,6 +74,7 @@ import { BitrixModule } from './core/integrations/bitrix/bitrix.module';
     // Built-in modules
     AdminModule,
     LogBufferModule,
+    PushModule,
   ],
 })
 export class AppModule {}
