@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { NavSidebar } from './components/NavSidebar';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import api from '@/lib/api';
+import { InstallPrompt } from '@/components/InstallPrompt';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, _hasHydrated, user, stopImpersonation } = useAuthStore();
@@ -82,6 +83,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </div>
       </div>
+      <InstallPrompt />
     </div>
   );
 }
