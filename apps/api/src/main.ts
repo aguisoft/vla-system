@@ -21,13 +21,13 @@ async function bootstrap() {
     contentSecurityPolicy: isProduction ? {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", 'https://my.zadarma.com'],
+        scriptSrc: ["'self'", 'https://my.zadarma.com', 'https://api.zadarma.com'],
         scriptSrcAttr: ["'none'"],
         styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
         fontSrc: ["'self'", 'https:', 'data:'],
-        imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'", 'https://my.zadarma.com', 'wss://my.zadarma.com', 'wss:'],
-        mediaSrc: ["'self'", 'blob:'],
+        imgSrc: ["'self'", 'data:', 'https://my.zadarma.com'],
+        connectSrc: ["'self'", 'https://my.zadarma.com', 'https://api.zadarma.com', 'wss://my.zadarma.com', 'wss://ws.zadarma.com', 'wss:'],
+        mediaSrc: ["'self'", 'blob:', 'https://my.zadarma.com'],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
