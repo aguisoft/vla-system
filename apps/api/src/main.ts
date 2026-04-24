@@ -18,7 +18,23 @@ async function bootstrap() {
 
   // ── Security headers ────────────────────────────────────────────────────────
   app.use(helmet({
-    contentSecurityPolicy: isProduction,
+    contentSecurityPolicy: isProduction ? {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", 'https://my.zadarma.com'],
+        scriptSrcAttr: ["'none'"],
+        styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
+        fontSrc: ["'self'", 'https:', 'data:'],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'", 'https://my.zadarma.com', 'wss://my.zadarma.com', 'wss:'],
+        mediaSrc: ["'self'", 'blob:'],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'self'"],
+        upgradeInsecureRequests: [],
+      },
+    } : false,
     crossOriginEmbedderPolicy: false, // required for Socket.IO
   }));
 
