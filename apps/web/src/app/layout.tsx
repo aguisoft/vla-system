@@ -4,6 +4,10 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'VLA Virtual Office',
   description: 'Oficina virtual interactiva de VLA Academy',
+  icons: {
+    icon: '/logovla.svg',
+    apple: '/icons/icon-192.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
