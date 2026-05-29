@@ -134,17 +134,22 @@ export class PluginRegistryService implements OnModuleInit {
   }
 
   async updateConfig(name: string, config: Record<string, unknown>): Promise<PluginRegistration> {
-    // Validate against schema if available
+    // Merge with existing config (PATCH semantics): only overwrite keys provided
+    const existing = await this.prisma.plugin.findUnique({ where: { name } });
+    const current = (existing?.config as Record<string, unknown> | null) ?? {};
+    const merged: Record<string, unknown> = { ...current, ...config };
+
+    // Validate merged result against schema if available
     const schema = this.settingsSchemas.get(name);
     if (schema) {
-      const errors = this.validateConfig(schema, config);
+      const errors = this.validateConfig(schema, merged);
       if (errors.length > 0) {
         throw new Error(`Config validation failed: ${errors.join('; ')}`);
       }
     }
     const record = await this.prisma.plugin.update({
       where: { name },
-      data: { config: config as any },
+      data: { config: merged as any },
     });
     return this.toRegistration(record);
   }
