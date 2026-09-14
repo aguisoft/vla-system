@@ -223,8 +223,8 @@ model PresenceStatus {
 
 enum OfficeStatus {
   AVAILABLE
-  BUSY
-  IN_MEETING
+  IN_MEETING_INTERNAL
+  IN_MEETING_EXTERNAL
   FOCUS
   LUNCH
   BRB
