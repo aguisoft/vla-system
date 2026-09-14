@@ -49,6 +49,14 @@ export interface PluginManifest {
    *  write:presence     → ctx.prisma.presenceStatus.update(...)
    *  read:checkins      → ctx.prisma.checkInRecord.findMany(...)
    *  write:checkins     → ctx.prisma.checkInRecord.create(...)
+   *  read:absences      → ctx.prisma.absenceRecord.findMany(...)
+   *  write:absences     → ctx.prisma.absenceRecord.create(...)
+   *  read:holidays      → ctx.prisma.holiday.findMany(...) / holidayOverride
+   *  write:holidays     → ctx.prisma.holiday.create(...)   / holidayOverride
+   *  read:meetings      → ctx.prisma.meetingInvite.findMany(...)
+   *  write:meetings     → ctx.prisma.meetingInvite.update(...)
+   *  read:org           → ctx.prisma.userProfileOverride.findMany(...)
+   *  write:org          → ctx.prisma.userProfileOverride.upsert(...)
    *  read:plugins       → ctx.pluginRegistry.getAll()
    *  manage:plugins     → ctx.pluginRegistry.activate/deactivate()
    */
@@ -134,6 +142,14 @@ export type PluginPermission =
   | 'write:presence'
   | 'read:checkins'
   | 'write:checkins'
+  | 'read:absences'
+  | 'write:absences'
+  | 'read:holidays'
+  | 'write:holidays'
+  | 'read:meetings'
+  | 'write:meetings'
+  | 'read:org'
+  | 'write:org'
   | 'read:plugins'
   | 'manage:plugins';
 
