@@ -1,3 +1,22 @@
+DROP TABLE IF EXISTS virtual_office."UserProfileOverride";
+DROP TABLE IF EXISTS virtual_office."MeetingInvite";
+DROP TABLE IF EXISTS virtual_office."HolidayOverride";
+DROP TABLE IF EXISTS virtual_office."Holiday";
+DROP TABLE IF EXISTS virtual_office."AbsenceRecord";
+DROP TYPE  IF EXISTS virtual_office."InviteState";
+DROP TYPE  IF EXISTS virtual_office."AbsenceType";
+
+ALTER TABLE virtual_office."PresenceStatus"
+  DROP COLUMN IF EXISTS justification,
+  DROP COLUMN IF EXISTS "statusStartsAt",
+  DROP COLUMN IF EXISTS "statusEndsAt",
+  DROP COLUMN IF EXISTS "meetingId";
+
+ALTER TABLE virtual_office."BitrixUserMapping"
+  DROP COLUMN IF EXISTS "departmentId",
+  DROP COLUMN IF EXISTS "isDepartmentHead",
+  DROP COLUMN IF EXISTS country;
+
 -- Reversa manual. NO recupera qué filas eran BUSY: ese dato se perdió en el
 -- paso 1 de la migración hacia adelante. Restaurar desde el respaldo de
 -- PresenceStatus si hace falta el valor original.

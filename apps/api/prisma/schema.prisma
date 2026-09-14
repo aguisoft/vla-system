@@ -35,6 +35,8 @@ model User {
   userAvatar        UserAvatar?
   bitrixMapping     BitrixUserMapping?
   pushSubscriptions PushSubscription[]
+  absenceRecords    AbsenceRecord[]
+  holidayOverrides  HolidayOverride[]
 
   @@schema("core")
 }
@@ -215,6 +217,10 @@ model PresenceStatus {
   isCheckedIn   Boolean        @default(false)
   lastActivityAt DateTime      @default(now())
   updatedAt     DateTime       @updatedAt
+  justification  String?
+  statusStartsAt DateTime?
+  statusEndsAt   DateTime?
+  meetingId      String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -233,11 +239,101 @@ enum OfficeStatus {
   @@schema("virtual_office")
 }
 
+enum AbsenceType {
+  PERMISO
+  VACACIONES
+  INCAPACIDAD
+
+  @@schema("virtual_office")
+}
+
+model AbsenceRecord {
+  id            String      @id @default(uuid())
+  userId        String
+  type          AbsenceType
+  startAt       DateTime
+  endAt         DateTime
+  justification String?
+  createdBy     String
+  createdAt     DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt, endAt])
+  @@index([startAt, endAt])
+  @@schema("virtual_office")
+}
+
+model Holiday {
+  id      String   @id @default(uuid())
+  date    DateTime @db.Date
+  name    String
+  country String
+
+  overrides HolidayOverride[]
+
+  @@unique([date, country])
+  @@index([country, date])
+  @@schema("virtual_office")
+}
+
+model HolidayOverride {
+  id            String   @id @default(uuid())
+  userId        String
+  holidayId     String
+  newDate       DateTime @db.Date
+  justification String
+  createdAt     DateTime @default(now())
+
+  holiday Holiday @relation(fields: [holidayId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, holidayId])
+  @@index([userId, newDate])
+  @@schema("virtual_office")
+}
+
+enum InviteState {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  EXPIRED
+
+  @@schema("virtual_office")
+}
+
+model MeetingInvite {
+  id          String      @id @default(uuid())
+  meetingId   String
+  hostId      String
+  inviteeId   String
+  state       InviteState @default(PENDING)
+  createdAt   DateTime    @default(now())
+  respondedAt DateTime?
+
+  @@index([inviteeId, state])
+  @@index([meetingId])
+  @@schema("virtual_office")
+}
+
+model UserProfileOverride {
+  id            String  @id @default(uuid())
+  userId        String  @unique
+  managerUserId String?
+  country       String?
+
+  @@schema("virtual_office")
+}
+
 model BitrixUserMapping {
   id           String   @id @default(uuid())
   userId       String   @unique
   bitrixUserId Int      @unique
   createdAt    DateTime @default(now())
+  departmentId     String?
+  isDepartmentHead Boolean @default(false)
+  country          String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
