@@ -17,6 +17,7 @@ import { RolesModule } from './core/roles/roles.module';
 import { PermissionsModule } from './core/permissions/permissions.module';
 import { LogBufferModule } from './core/log-buffer/log-buffer.module';
 import { BitrixModule } from './core/integrations/bitrix/bitrix.module';
+import { AiModule } from './core/ai/ai.module';
 import { PushModule } from './core/push/push.module';
 
 @Module({
@@ -53,6 +54,9 @@ import { PushModule } from './core/push/push.module';
         VAPID_PUBLIC_KEY:     Joi.string().optional().allow(''),
         VAPID_PRIVATE_KEY:    Joi.string().optional().allow(''),
         VAPID_SUBJECT:        Joi.string().optional().allow(''),
+        AI_DEFAULT_PROVIDER:  Joi.string().optional().allow(''),
+        OPENAI_API_KEY:       Joi.string().optional().allow(''),
+        OPENAI_MODEL:         Joi.string().optional().allow(''),
       }),
       validationOptions: { abortEarly: false },
     }),
@@ -62,6 +66,7 @@ import { PushModule } from './core/push/push.module';
     PrismaModule,
     RedisModule,
     BitrixModule,
+    AiModule,
     HookModule,
     AuthModule,
     UsersModule,

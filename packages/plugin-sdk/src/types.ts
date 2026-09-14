@@ -228,6 +228,13 @@ export interface PluginContext {
   bitrix?: PluginBitrixClient;
 
   /**
+   * Cliente de IA del core (LLM). Solo disponible si hay un proveedor configurado
+   * (IA_API_KEY). Plugins que declaren `"requires": ["ai"]` pueden usar `ctx.ai!`
+   * con seguridad; el resto debe usar `ctx.ai?.` defensivamente.
+   */
+  ai?: PluginAiClient;
+
+  /**
    * Execute a raw SQL query against the plugin's isolated schema (plugin_<name>).
    * Only available if the plugin has migrations/ directory.
    * The search_path is automatically set to the plugin's schema.
@@ -292,6 +299,40 @@ export interface PluginBitrixClient {
   callRaw<T = any>(method: string, params?: Record<string, unknown>): Promise<{ result: T; next?: number; total?: number }>;
   /** Auto-paginating call that follows the `next` cursor and returns all results */
   callAll<T = any>(method: string, params?: Record<string, unknown>): Promise<T[]>;
+}
+
+// ─── AI client subset exposed to plugins ──────────────────────────────────────
+
+export interface PluginAiClient {
+  /** Returns true if at least one AI provider is configured */
+  isConfigured(): boolean;
+  /** Get the default provider name */
+  getDefaultProvider(): string;
+  /** Get status of all providers */
+  getStatus(): Record<string, { configured: boolean; model?: string }>;
+  /** Full chat with system + messages */
+  chat(opts: {
+    system?: string;
+    messages: Array<{ role: string; content: string }>;
+    temperature?: number;
+    maxTokens?: number;
+    modelOverride?: string;
+    jsonSchema?: Record<string, unknown>;
+  }): Promise<{
+    content: string;
+    provider: string;
+    model: string;
+    usage?: { inputTokens: number; outputTokens: number };
+    truncated?: boolean;
+  }>;
+  /** Simple completion from a single prompt */
+  complete(prompt: string, opts?: { temperature?: number; maxTokens?: number; modelOverride?: string }): Promise<string>;
+  /** Extract structured JSON from AI response */
+  extractJson<T = Record<string, unknown>>(
+    prompt: string,
+    schema: Record<string, unknown>,
+    opts?: { temperature?: number; maxTokens?: number },
+  ): Promise<T>;
 }
 
 // ─── Redis client subset exposed to plugins ───────────────────────────────────
