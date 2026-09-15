@@ -154,3 +154,9 @@ ALTER TABLE "virtual_office"."HolidayOverride" ADD CONSTRAINT "HolidayOverride_h
 
 -- AddForeignKey
 ALTER TABLE "virtual_office"."HolidayOverride" ADD CONSTRAINT "HolidayOverride_userId_fkey" FOREIGN KEY ("userId") REFERENCES "core"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- CreateIndex
+-- Agregado en la ola de arreglo final (defecto #6): cancelMeetingsHostedBy
+-- filtra MeetingInvite por hostId en cada PATCH /presence/status y hacía
+-- seq-scan sin este índice.
+CREATE INDEX "MeetingInvite_hostId_state_idx" ON "virtual_office"."MeetingInvite"("hostId", "state");

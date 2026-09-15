@@ -314,6 +314,7 @@ model MeetingInvite {
 
   @@index([inviteeId, state])
   @@index([meetingId])
+  @@index([hostId, state])
   @@schema("virtual_office")
 }
 

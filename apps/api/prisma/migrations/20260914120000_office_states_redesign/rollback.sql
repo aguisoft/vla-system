@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS virtual_office."UserProfileOverride";
+DROP INDEX IF EXISTS virtual_office."MeetingInvite_hostId_state_idx";
 DROP TABLE IF EXISTS virtual_office."MeetingInvite";
 DROP TABLE IF EXISTS virtual_office."HolidayOverride";
 DROP TABLE IF EXISTS virtual_office."Holiday";
