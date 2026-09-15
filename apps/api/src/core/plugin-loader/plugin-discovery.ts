@@ -12,8 +12,19 @@ export interface DiscoveredPlugin {
 /** Absolute path to the external plugins folder */
 export const PLUGINS_DIR = path.resolve(process.cwd(), 'storage', 'plugins');
 
-/** Minimum VLA core version — plugins whose vlaMinVersion is higher will be rejected */
-export const VLA_CORE_VERSION = '1.0.0';
+/**
+ * Minimum VLA core version — plugins whose vlaMinVersion is higher will be
+ * rejected. Bumped to 1.1.0 alongside office's plugin.json (final review
+ * fix #8): office 1.1.0 adds AbsenceRecord/Holiday/HolidayOverride/
+ * MeetingInvite/UserProfileOverride to schema.prisma, and installing that
+ * zip against an unmigrated core previously succeeded silently — every
+ * ctx.prisma.absenceRecord (etc.) call then threw, and GET /snapshot 500'd
+ * for the whole screen. isCompatible() only rejects a plugin whose
+ * vlaMinVersion is ABOVE this constant, so raising it here does not affect
+ * plugins that still declare "1.0.0" (campanas, cobros, wa-groups) — they
+ * only require core >= 1.0.0, and 1.1.0 satisfies that.
+ */
+export const VLA_CORE_VERSION = '1.1.0';
 
 const logger = new Logger('PluginDiscovery');
 

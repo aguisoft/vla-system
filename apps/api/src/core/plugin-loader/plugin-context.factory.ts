@@ -9,6 +9,7 @@ import { HookService } from '../hooks/hook.service';
 import { RedisService } from '../redis/redis.service';
 import { PluginRegistryService } from '../plugin-registry/plugin-registry.service';
 import { BitrixService } from '../integrations/bitrix/bitrix.service';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class PluginContextFactory {
@@ -20,6 +21,7 @@ export class PluginContextFactory {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly registry: PluginRegistryService,
     private readonly bitrixService: BitrixService,
+    private readonly aiService: AiService,
   ) {}
 
   /**
@@ -110,6 +112,16 @@ export class PluginContextFactory {
         call: <T>(method: string, params?: Record<string, unknown>) => this.bitrixService.call<T>(method, params),
         callRaw: <T>(method: string, params?: Record<string, unknown>) => this.bitrixService.callRaw<T>(method, params),
         callAll: <T>(method: string, params?: Record<string, unknown>) => this.bitrixService.callAll<T>(method, params),
+      } : undefined,
+
+      ai: this.aiService.isConfigured() ? {
+        isConfigured: () => this.aiService.isConfigured(),
+        getDefaultProvider: () => this.aiService.getDefaultProvider(),
+        getStatus: () => this.aiService.getStatus(),
+        chat: (opts) => this.aiService.chat(opts),
+        complete: (prompt, opts) => this.aiService.complete(prompt, opts),
+        extractJson: <T>(prompt: string, schema: Record<string, unknown>, opts?: any) =>
+          this.aiService.extractJson<T>(prompt, schema, opts),
       } : undefined,
 
       query: async <T = any>(sql: string, params?: any[]): Promise<T[]> => {

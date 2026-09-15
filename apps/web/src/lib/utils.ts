@@ -8,8 +8,8 @@ export function cn(...inputs: ClassValue[]) {
 
 export const STATUS_CONFIG: Record<PresenceStatusEnum, { label: string; color: string; emoji: string; pulse: boolean }> = {
   [PresenceStatusEnum.AVAILABLE]: { label: 'Disponible', color: '#00C853', emoji: '🟢', pulse: true },
-  [PresenceStatusEnum.BUSY]: { label: 'Ocupado', color: '#FFB300', emoji: '🟡', pulse: false },
-  [PresenceStatusEnum.IN_MEETING]: { label: 'En reunión', color: '#F44336', emoji: '🔴', pulse: false },
+  [PresenceStatusEnum.IN_MEETING_INTERNAL]: { label: 'En reunión interna', color: '#c084fc', emoji: '🟣', pulse: false },
+  [PresenceStatusEnum.IN_MEETING_EXTERNAL]: { label: 'En reunión externa', color: '#7c3aed', emoji: '🟪', pulse: false },
   [PresenceStatusEnum.FOCUS]: { label: 'Enfocado', color: '#9C27B0', emoji: '🎯', pulse: false },
   [PresenceStatusEnum.LUNCH]: { label: 'Almorzando', color: '#FF7043', emoji: '🍽️', pulse: false },
   [PresenceStatusEnum.BRB]: { label: 'Vuelvo pronto', color: '#78909C', emoji: '⏰', pulse: false },
