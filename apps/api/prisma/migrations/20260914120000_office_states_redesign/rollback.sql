@@ -1,3 +1,19 @@
+-- ⚠ DESTRUCTIVO: este script BORRA los datos de la feature, no solo su
+-- esquema. Los DROP TABLE de abajo eliminan las cinco tablas nuevas de
+-- 20260914120000_office_states_redesign: TODAS las ausencias registradas
+-- (AbsenceRecord — vacaciones, incapacidades, permisos), el calendario de
+-- feriados de RRHH (Holiday) y todos los overrides (HolidayOverride,
+-- UserProfileOverride), más las invitaciones a reunión (MeetingInvite).
+-- Nada de esto se puede reconstruir después de correr este script.
+-- Respaldá las cinco tablas con pg_dump ANTES de ejecutarlo, por ejemplo:
+--   docker exec -i vla_postgres pg_dump -U vla_user -d vla_db \
+--     -n virtual_office \
+--     -t virtual_office.\"AbsenceRecord\" -t virtual_office.\"Holiday\" \
+--     -t virtual_office.\"HolidayOverride\" -t virtual_office.\"MeetingInvite\" \
+--     -t virtual_office.\"UserProfileOverride\" \
+--     > office_states_redesign_backup.sql
+-- (El aviso de más abajo sobre BUSY es aparte: ese dato ya se pierde al
+-- migrar HACIA ADELANTE, antes de que este rollback exista siquiera.)
 DROP TABLE IF EXISTS virtual_office."UserProfileOverride";
 DROP INDEX IF EXISTS virtual_office."MeetingInvite_hostId_state_idx";
 DROP TABLE IF EXISTS virtual_office."MeetingInvite";
